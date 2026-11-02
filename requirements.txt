@@ -1,0 +1,4 @@
+pyserial>=3.5
+pywebview>=6.0
+anthropic>=2.3
+keyring>=25

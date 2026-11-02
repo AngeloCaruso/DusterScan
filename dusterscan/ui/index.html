@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DusterScan</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Text comes from dusterscan/locales/<lang>.json:
+     data-i18n = text, data-i18n-html = trusted markup, data-i18n-placeholder / data-i18n-title = attributes.
+     Icons: Lucide (ISC licence), inlined so the app works offline. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+  <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M10 5H3"/><path d="M12 19H3"/><path d="M14 3v4"/><path d="M16 17v4"/><path d="M21 12h-9"/><path d="M21 19h-5"/><path d="M21 5h-7"/><path d="M8 10v4"/><path d="M8 12H3"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><path d="M12 20v2M12 2v2M17 20v2M17 2v2M2 12h2M2 17h2M2 7h2M20 12h2M20 17h2M20 7h2M7 20v2M7 2v2"/><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-radio" viewBox="0 0 24 24"><path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
+  <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+</svg>
+
+<!-- Startup screen: covers the window until app.js has loaded settings and translations. -->
+<div class="boot" id="boot" role="status" aria-label="Loading">
+  <div class="logo boot-logo"><svg class="ic"><use href="#i-activity"/></svg></div>
+  <span class="wordmark boot-word">Duster<span>Scan</span></span>
+  <span class="boot-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+</div>
+
+<header class="topbar">
+  <div class="hdr-left">
+    <div class="brand">
+      <div class="logo"><svg class="ic"><use href="#i-activity"/></svg></div>
+      <span class="wordmark">Duster<span>Scan</span></span>
+      <span class="tag" id="version"></span>
+    </div>
+    <span class="pill ok" data-i18n-title="ui.read_only_tip"><svg class="ic"><use href="#i-shield-check"/></svg><span class="ro-badge-text" data-i18n="ui.read_only">Read-only: never writes to the car</span></span>
+  </div>
+  <div class="vehicle hidden" id="hdr-vehicle">
+    <span class="lbl" data-i18n="ui.active_vehicle">Active vehicle</span>
+    <span class="val"><svg class="ic"><use href="#i-car"/></svg><span id="hdr-vehicle-name"></span></span>
+    <span class="dot" id="hdr-vehicle-dot"></span>
+  </div>
+  <div class="hdr-right">
+    <span class="pill hidden" id="hdr-status"><span class="dot pulse"></span><span id="hdr-status-text"></span></span>
+    <label class="sr-only" for="language" data-i18n="ui.language">Language</label>
+    <select class="hdr-select" id="language"></select>
+    <button class="btn btn-outline" id="btn-settings"><svg class="ic"><use href="#i-sliders"/></svg><span data-i18n="ui.settings">Settings</span></button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="side">
+    <section class="step" id="step-connect">
+      <div class="step-head">
+        <div class="step-title"><span class="step-num">1</span><h2 data-i18n="ui.step_connect">Connect</h2></div>
+        <span class="step-state" id="conn-state"><span class="dot"></span><span data-i18n="ui.offline">Not connected</span></span>
+      </div>
+      <div class="field">
+        <label class="label" for="port" data-i18n="ui.adapter_port">Adapter port</label>
+        <div class="row">
+          <select class="grow" id="port"></select>
+          <button class="btn btn-outline btn-icon" id="btn-refresh" data-i18n-title="ui.refresh_tip"><svg class="ic"><use href="#i-refresh"/></svg><span class="sr-only" data-i18n="ui.refresh">Refresh</span></button>
+        </div>
+      </div>
+      <div class="status hidden" id="port-hint" data-i18n="ui.no_ports"></div>
+      <label class="check"><input type="checkbox" id="demo"> <span data-i18n="ui.demo_mode">Demo mode (simulated car, no adapter needed)</span></label>
+      <button class="btn btn-primary btn-block" id="btn-connect"><svg class="ic"><use href="#i-plug"/></svg><span data-i18n="ui.connect">Connect</span></button>
+      <div class="status" id="connect-status"></div>
+      <div class="readout hidden" id="readout">
+        <div class="ro-head"><span><svg class="ic ic-sm"><use href="#i-cpu"/></svg><span id="ro-connected"></span></span><svg class="ic ic-sm"><use href="#i-check"/></svg></div>
+        <div class="ro-line" id="ro-protocol-line"><span data-i18n="ui.protocol">Protocol</span>: <b id="ro-protocol"></b></div>
+        <div class="ro-foot"><span><span data-i18n="ui.battery_voltage">Battery voltage</span>:</span><b id="ro-voltage"></b></div>
+      </div>
+      <button class="btn btn-secondary btn-block hidden" id="btn-live" data-i18n-title="ui.live_tip"><svg class="ic"><use href="#i-gauge"/></svg><span id="btn-live-label"></span></button>
+    </section>
+
+    <section class="step" id="step-scan">
+      <div class="step-head">
+        <div class="step-title"><span class="step-num">2</span><h2 data-i18n="ui.step_scan">Scan</h2></div>
+        <svg class="ic done-mark"><use href="#i-check"/></svg>
+      </div>
+      <div class="seg" role="radiogroup">
+        <label><input type="radio" name="scantype" value="standard" checked><span class="opt"><span class="opt-row"><span class="opt-title" data-i18n="ui.scan_standard">Standard</span><span class="dot"></span></span><small data-i18n="ui.scan_standard_hint">about 1 min</small></span></label>
+        <label><input type="radio" name="scantype" value="deep"><span class="opt"><span class="opt-row"><span class="opt-title" data-i18n="ui.scan_deep">Deep</span><span class="dot"></span></span><small data-i18n="ui.scan_deep_hint">searches every module, ~3 min</small></span></label>
+      </div>
+      <div class="callout warn"><svg class="ic"><use href="#i-alert"/></svg><span data-i18n="ui.scan_tip">Best results: engine idling at normal temperature, A/C off.</span></div>
+      <button class="btn btn-secondary btn-block" id="btn-scan" disabled><svg class="ic"><use href="#i-radio"/></svg><span data-i18n="ui.start_scan">Start scan</span></button>
+      <div class="progress hidden" id="scan-progress">
+        <div class="track"><div class="fill" id="scan-fill"></div></div>
+        <div class="row">
+          <div class="status truncate" id="scan-msg"></div>
+          <button class="btn btn-outline" id="btn-cancel"><span data-i18n="ui.cancel">Cancel</span></button>
+        </div>
+      </div>
+      <div class="result hidden" id="scan-result"><svg class="ic ic-sm"><use href="#i-check-circle"/></svg><span id="scan-result-text"></span></div>
+    </section>
+
+    <section class="step" id="step-ai">
+      <div class="step-head">
+        <div class="step-title"><span class="step-num">3</span><h2 data-i18n="ui.step_ai">AI analysis</h2></div>
+        <svg class="ic done-mark"><use href="#i-check"/></svg>
+      </div>
+      <div class="field">
+        <label class="label" for="symptoms" data-i18n="ui.symptoms">Symptoms you noticed (optional)</label>
+        <textarea id="symptoms" rows="2" data-i18n-placeholder="ui.symptoms_placeholder"></textarea>
+      </div>
+      <button class="btn btn-secondary btn-block" id="btn-ai" disabled><svg class="ic"><use href="#i-sparkles"/></svg><span data-i18n="ui.analyse">Analyse report</span></button>
+      <div class="status" id="ai-status"></div>
+    </section>
+
+    <section class="step" id="step-files">
+      <div class="step-head">
+        <div class="step-title"><span class="step-num">4</span><h2 data-i18n="ui.step_save">Save</h2></div>
+      </div>
+      <div class="btn-grid">
+        <button class="btn btn-outline" id="btn-save-html" disabled><svg class="ic"><use href="#i-file"/></svg><span data-i18n="ui.save_report">Save report</span></button>
+        <button class="btn btn-outline" id="btn-save-json" disabled><svg class="ic"><use href="#i-database"/></svg><span data-i18n="ui.save_data">Save data</span></button>
+        <button class="btn btn-outline" id="btn-open"><svg class="ic"><use href="#i-folder-open"/></svg><span data-i18n="ui.open_saved">Open saved scan</span></button>
+        <button class="btn btn-outline" id="btn-folder"><svg class="ic"><use href="#i-folder"/></svg><span data-i18n="ui.reports_folder">Reports folder</span></button>
+      </div>
+      <div class="status" id="files-status"></div>
+      <div class="autosave hidden" id="autosave">
+        <div class="autosave-head"><span data-i18n="ui.autosave_label">Saved automatically to</span>
+          <button class="btn btn-link" data-copy="#autosave-path" data-i18n-title="ui.copy"><svg class="ic ic-sm"><use href="#i-copy"/></svg></button>
+        </div>
+        <p class="path" id="autosave-path"></p>
+      </div>
+    </section>
+  </aside>
+
+  <section class="content" id="content">
+    <div class="content-inner">
+      <div class="empty" id="empty">
+        <h1 data-i18n="ui.empty_title">Know what's going on with your car</h1>
+        <ol class="steps">
+          <li><span data-i18n="ui.empty_1"></span></li>
+          <li><span data-i18n="ui.empty_2"></span></li>
+          <li><span data-i18n-html="ui.empty_3"></span></li>
+          <li><span data-i18n-html="ui.empty_4"></span></li>
+        </ol>
+        <p class="note" data-i18n-html="ui.empty_demo"></p>
+      </div>
+      <section class="live hidden" id="live">
+        <div class="live-head">
+          <div class="live-title">
+            <h2 data-i18n="ui.live_title">Live engine data</h2>
+            <span class="live-state" id="live-state"><span class="dot"></span><span id="live-state-text"></span></span>
+          </div>
+          <div class="row">
+            <button class="btn btn-outline" id="btn-live-toggle"><span id="btn-live-toggle-label"></span></button>
+            <button class="btn btn-outline btn-icon" id="btn-live-close" data-i18n-title="ui.close"><svg class="ic"><use href="#i-x"/></svg><span class="sr-only" data-i18n="ui.close">Close</span></button>
+          </div>
+        </div>
+        <div class="live-grid" id="live-grid"></div>
+        <p class="live-note" data-i18n="ui.live_note"></p>
+      </section>
+      <div id="report"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" class="dlg">
+    <h2 data-i18n="ui.settings">Settings</h2>
+    <div class="field">
+      <label class="label" for="api-key" data-i18n="ui.api_key">Anthropic API key (for the AI analysis)</label>
+      <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+      <small class="hint" id="key-hint"></small>
+    </div>
+    <div class="row end">
+      <button type="button" class="btn btn-outline" onclick="this.closest('dialog').close('cancel')"><span data-i18n="ui.cancel">Cancel</span></button>
+      <button class="btn btn-primary" value="save"><span data-i18n="ui.save">Save</span></button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

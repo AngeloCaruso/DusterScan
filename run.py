@@ -1,0 +1,6 @@
+"""Start the DusterScan desktop app."""
+
+from dusterscan.app import main
+
+if __name__ == "__main__":
+    main()
