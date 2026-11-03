@@ -18,6 +18,7 @@ the engine and airbag computers take longer than 150 ms to answer.
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -74,9 +75,10 @@ UDS_IDENT_DIDS = {
 }
 
 # Fields of the Renault "21 80" identification block shown in the report
-# ("ident.<id>" labels). The block also holds a diagnostic version, a
-# calibration number and index bytes, kept only in the raw hex.
-RENAULT_IDENT_FIELDS = ("part_suffix", "supplier", "hw_suffix", "software", "edition")
+# ("ident.<id>" labels). Diagnostic version, supplier, software and edition are
+# also what identifies the module in the Renault database (see ddt/match.py).
+# The block also holds a calibration number and index bytes, kept only in the raw hex.
+RENAULT_IDENT_FIELDS = ("part_suffix", "supplier", "hw_suffix", "software", "edition", "diag_version")
 
 # UDS DTC status bits that mean the test actually failed at some point:
 # failed now (0x01), failed this cycle (0x02), pending (0x04), confirmed (0x08),
@@ -129,7 +131,8 @@ def parse_renault_ident(data: bytes) -> dict:
         part, supplier, hw = ascii_field(b[0:5]), ascii_field(b[6:9]), ascii_field(b[9:14])
         if part and supplier and hw:
             return {"part_suffix": part.strip(), "supplier": supplier.strip(), "hw_suffix": hw.strip(),
-                    "software": b[14:16].hex().upper(), "edition": b[16:18].hex().upper()}
+                    "software": b[14:16].hex().upper(), "edition": b[16:18].hex().upper(),
+                    "diag_version": str(b[5])}
     return {"kwp_ident": " | ".join(_ascii_runs(b)) or "-"}
 
 
@@ -139,6 +142,29 @@ def valid_vin(value) -> str | None:
         return None
     v = value.strip().upper()
     return v if _VIN.match(v) else None
+
+
+@contextmanager
+def extended_session(elm: ELM327, session: str = "10C0", default: str = "1081"):
+    """Some ECUs only answer certain reads in their extended diagnostic session.
+
+    Entering it does not change anything in the ECU and it times out on its
+    own; we still switch back to the default session right after.
+    """
+    elm.request(session, timeout=1.5)
+    try:
+        yield
+    finally:
+        elm.request(default, timeout=1.5)
+
+
+def session_requests(protocol: str) -> tuple[str, str]:
+    """(extended, default) session requests for a module's protocol."""
+    return ("1003", "1001") if protocol == "UDS" else ("10C0", "1081")
+
+
+def wrong_session(msgs: list[Message]) -> bool:
+    return _negative(msgs) in _WRONG_SESSION
 
 
 def _first(msgs: list[Message], positive_sid: int) -> Message | None:
@@ -237,15 +263,9 @@ class EcuScanner:
     # -- fault codes -----------------------------------------------------------
 
     def _in_session(self, payload: str, session: str, default: str) -> list[Message]:
-        # Some ECUs only answer in their extended diagnostic session. Entering it
-        # does not change anything in the ECU and it times out on its own;
-        # we still switch back to the default session right after.
         self.log(msg("log.extended_session", request=payload))
-        self.elm.request(session, timeout=1.5)
-        try:
+        with extended_session(self.elm, session, default):
             return self.elm.request(payload, timeout=3.0)
-        finally:
-            self.elm.request(default, timeout=1.5)
 
     def _with_session_retry(self, payload: str, positive: int, session: str, default: str):
         msgs = self.elm.request(payload, timeout=3.0)

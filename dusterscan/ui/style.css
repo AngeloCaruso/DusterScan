@@ -238,6 +238,77 @@ select:disabled, input:disabled, textarea:disabled { opacity: .45; cursor: not-a
 .live.stopped .lv-spark polyline { stroke: var(--faint); }
 .live-note { font-size: 11px; line-height: 16px; color: var(--muted-2); }
 
+.live-src { display: flex; gap: 8px; flex-wrap: wrap; }
+.live-src .combo-slot { width: 260px; max-width: 100%; }
+
+/* -- badges --------------------------------------------------------------------- */
+.badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; flex: none; font: 500 10px/1 var(--mono); white-space: nowrap; border: 1px solid var(--border-strong); color: var(--muted); background: var(--panel-solid); }
+.badge.t-green { color: var(--green); border-color: rgb(6 78 59 / .6); background: rgb(2 44 34 / .3); }
+.badge.t-amber { color: var(--amber); border-color: rgb(245 158 11 / .3); background: rgb(245 158 11 / .08); }
+.badge.t-red { color: var(--red); border-color: rgb(239 68 68 / .3); background: rgb(239 68 68 / .08); }
+
+/* -- searchable dropdown ---------------------------------------------------------- */
+.combo-btn { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-solid); color: var(--fg-2); font-size: 12px; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.combo-btn .combo-val { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-btn .ic { color: var(--muted-2); }
+.combo-btn:not(:disabled):hover { border-color: var(--border-strong); }
+.combo-btn[aria-expanded="true"], .combo-btn:focus-visible { outline: none; border-color: rgb(0 229 255 / .6); box-shadow: 0 0 0 3px rgb(0 229 255 / .12); }
+.combo-btn:disabled { opacity: .45; cursor: not-allowed; }
+.combo-pop { position: fixed; z-index: 50; display: flex; flex-direction: column; min-height: 120px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--panel-solid); box-shadow: 0 12px 32px rgb(0 0 0 / .55); overflow: hidden; }
+.combo-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--border); color: var(--muted-2); }
+.combo-search input { height: 36px; padding: 0; border: 0; background: transparent; box-shadow: none !important; }
+.combo-all { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.combo-list { list-style: none; margin: 0; padding: 4px; overflow-y: auto; flex: 1; }
+.combo-group { padding: 8px 8px 4px; font: 600 10px/14px var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--muted-2); }
+.combo-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--fg-3); }
+.combo-opt.active { background: var(--raised); color: var(--fg); }
+.combo-opt .opt-check { width: 12px; flex: none; visibility: hidden; color: var(--cyan); }
+.combo-opt[aria-selected="true"] .opt-check { visibility: visible; }
+.combo-opt .opt-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.combo-opt .opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-opt .opt-meta { font: 10px/14px var(--mono); color: var(--muted-2); }
+.combo-opt .opt-meta:empty { display: none; }
+.combo-empty { padding: 12px 8px; font-size: 12px; color: var(--muted-2); }
+.combo-more { padding: 6px 10px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted-2); }
+
+/* -- module definitions card ------------------------------------------------------ */
+.hint-line { font-size: 11px; line-height: 16px; color: var(--muted-2); }
+.mod-list { display: flex; flex-direction: column; gap: 10px; }
+.mod-row { display: flex; flex-direction: column; gap: 6px; }
+.mod-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.mod-name { font-size: 12px; font-weight: 500; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mod-note { font-size: 11px; line-height: 16px; color: var(--muted-2); }
+
+/* -- battery test --------------------------------------------------------------- */
+.batt-steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; counter-reset: b; }
+.batt-steps li { counter-increment: b; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--sunken); font-size: 12px; color: var(--muted-2); min-width: 0; }
+.batt-steps li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batt-steps li::before { content: counter(b); width: 18px; height: 18px; border-radius: 5px; flex: none; display: grid; place-items: center; background: var(--raised); border: 1px solid var(--border-strong); font: 600 10px/1 var(--mono); color: var(--fg-3); }
+.batt-steps li.active { border-color: rgb(0 229 255 / .5); color: var(--fg); }
+.batt-steps li.active::before { background: var(--cyan); border-color: var(--cyan); color: var(--bg); }
+.batt-steps li.done { color: var(--fg-3); }
+.batt-steps li.done::before { content: "✓"; color: var(--green); }
+.batt-now { display: flex; align-items: center; gap: 16px; padding: 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--sunken); }
+.batt-instr { flex: 1; min-width: 0; font-size: 13px; line-height: 20px; color: var(--fg-2); }
+.batt-volt { display: flex; align-items: baseline; gap: 4px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.batt-volt b { font-size: 28px; line-height: 32px; color: var(--fg-strong); }
+.batt-volt span { font-size: 12px; color: var(--muted-2); }
+.batt-result { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.bt { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--sunken); }
+.bt-label { font-size: 11px; color: var(--muted); }
+.bt-v { font: 600 20px/28px var(--mono); color: var(--fg-strong); font-variant-numeric: tabular-nums; }
+.bt-grade { font: 600 11px/16px var(--mono); text-transform: uppercase; }
+.bt-sub { font-size: 11px; color: var(--muted-2); }
+.bt.t-green .bt-grade { color: var(--green); }
+.bt.t-amber { border-color: rgb(245 158 11 / .35); }
+.bt.t-amber .bt-grade { color: var(--amber); }
+.bt.t-red { border-color: rgb(239 68 68 / .35); }
+.bt.t-red .bt-grade { color: var(--red); }
+
+/* -- database (settings) ------------------------------------------------------- */
+.ddt-box { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--sunken); }
+.ddt-status { font-size: 12px; color: var(--fg-3); }
+
 /* -- empty state ---------------------------------------------------------------- */
 .empty { max-width: 640px; margin: 24px auto 0; padding: 20px; border-radius: 8px; border: 1px solid var(--border); background: rgb(24 24 27 / .5); }
 .empty h1 { font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.02em; color: var(--fg-strong); margin-bottom: 16px; }

@@ -30,6 +30,9 @@
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/><line x1="6" x2="6" y1="11" y2="13"/><line x1="10" x2="10" y1="11" y2="13"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
 </svg>
 
@@ -85,7 +88,10 @@
         <div class="ro-line" id="ro-protocol-line"><span data-i18n="ui.protocol">Protocol</span>: <b id="ro-protocol"></b></div>
         <div class="ro-foot"><span><span data-i18n="ui.battery_voltage">Battery voltage</span>:</span><b id="ro-voltage"></b></div>
       </div>
-      <button class="btn btn-secondary btn-block hidden" id="btn-live" data-i18n-title="ui.live_tip"><svg class="ic"><use href="#i-gauge"/></svg><span id="btn-live-label"></span></button>
+      <div class="btn-grid hidden" id="conn-tools">
+        <button class="btn btn-secondary" id="btn-live" data-i18n-title="ui.live_tip"><svg class="ic"><use href="#i-gauge"/></svg><span id="btn-live-label"></span></button>
+        <button class="btn btn-secondary" id="btn-battery" data-i18n-title="ui.battery_tip"><svg class="ic"><use href="#i-battery"/></svg><span data-i18n="ui.battery_test">Battery test</span></button>
+      </div>
     </section>
 
     <section class="step" id="step-scan">
@@ -107,6 +113,16 @@
         </div>
       </div>
       <div class="result hidden" id="scan-result"><svg class="ic ic-sm"><use href="#i-check-circle"/></svg><span id="scan-result-text"></span></div>
+    </section>
+
+    <section class="step hidden" id="step-modules">
+      <div class="step-head">
+        <div class="step-title"><span class="step-num"><svg class="ic ic-sm"><use href="#i-database"/></svg></span><h2 data-i18n="ui.modules_title">Module definitions</h2></div>
+        <span class="step-state" id="modules-state"></span>
+      </div>
+      <p class="hint-line" data-i18n="ui.modules_hint">Matched automatically from the Renault database. Change one only if you know it fits better.</p>
+      <div class="mod-list" id="mod-list"></div>
+      <div class="status" id="modules-status"></div>
     </section>
 
     <section class="step" id="step-ai">
@@ -157,7 +173,7 @@
       <section class="live hidden" id="live">
         <div class="live-head">
           <div class="live-title">
-            <h2 data-i18n="ui.live_title">Live engine data</h2>
+            <h2 data-i18n="ui.live_title">Live data</h2>
             <span class="live-state" id="live-state"><span class="dot"></span><span id="live-state-text"></span></span>
           </div>
           <div class="row">
@@ -165,8 +181,37 @@
             <button class="btn btn-outline btn-icon" id="btn-live-close" data-i18n-title="ui.close"><svg class="ic"><use href="#i-x"/></svg><span class="sr-only" data-i18n="ui.close">Close</span></button>
           </div>
         </div>
+        <div class="live-src hidden" id="live-src">
+          <div class="combo-slot" id="live-source"></div>
+          <div class="combo-slot hidden" id="live-group"></div>
+        </div>
         <div class="live-grid" id="live-grid"></div>
-        <p class="live-note" data-i18n="ui.live_note"></p>
+        <p class="live-note" id="live-note" data-i18n="ui.live_note"></p>
+      </section>
+      <section class="live batt hidden" id="batt">
+        <div class="live-head">
+          <div class="live-title">
+            <h2 data-i18n="ui.battery_title">Battery &amp; charging test</h2>
+            <span class="live-state" id="batt-state"><span class="dot"></span><span id="batt-state-text"></span></span>
+          </div>
+          <div class="row">
+            <button class="btn btn-outline" id="btn-batt-cancel"><span data-i18n="ui.cancel">Cancel</span></button>
+            <button class="btn btn-outline btn-icon" id="btn-batt-close" data-i18n-title="ui.close"><svg class="ic"><use href="#i-x"/></svg><span class="sr-only" data-i18n="ui.close">Close</span></button>
+          </div>
+        </div>
+        <ol class="batt-steps" id="batt-steps">
+          <li data-step="rest"><span data-i18n="ui.batt_step_rest">At rest</span></li>
+          <li data-step="crank"><span data-i18n="ui.batt_step_crank">Starting</span></li>
+          <li data-step="idle"><span data-i18n="ui.batt_step_idle">Charging</span></li>
+          <li data-step="load"><span data-i18n="ui.batt_step_load">Under load</span></li>
+        </ol>
+        <div class="batt-now" id="batt-now">
+          <p class="batt-instr" id="batt-instr"></p>
+          <div class="batt-volt"><b id="batt-v">–</b><span>V</span></div>
+          <button class="btn btn-primary hidden" id="btn-batt-next"><span id="btn-batt-next-label"></span></button>
+        </div>
+        <div class="batt-result hidden" id="batt-result"></div>
+        <p class="live-note" data-i18n="ui.battery_note"></p>
       </section>
       <div id="report"></div>
     </div>
@@ -180,6 +225,24 @@
       <label class="label" for="api-key" data-i18n="ui.api_key">Anthropic API key (for the AI analysis)</label>
       <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
       <small class="hint" id="key-hint"></small>
+    </div>
+    <div class="field">
+      <label class="label" for="odometer" data-i18n="ui.odometer">Odometer (km), optional</label>
+      <input type="text" inputmode="numeric" id="odometer" maxlength="9" autocomplete="off" data-i18n-placeholder="ui.odometer_placeholder">
+      <small class="hint" id="odometer-hint"></small>
+    </div>
+    <div class="field">
+      <span class="label" data-i18n="ui.ddt_title">Renault module database</span>
+      <div class="ddt-box">
+        <p class="ddt-status" id="ddt-status"></p>
+        <div class="row">
+          <button type="button" class="btn btn-outline" id="btn-ddt-import"><svg class="ic"><use href="#i-database"/></svg><span id="btn-ddt-import-label" data-i18n="ui.ddt_import">Import .zip</span></button>
+          <button type="button" class="btn btn-outline hidden" id="btn-ddt-remove"><span data-i18n="ui.ddt_remove">Remove</span></button>
+        </div>
+        <div class="progress hidden" id="ddt-progress"><div class="track"><div class="fill" id="ddt-fill"></div></div></div>
+        <div class="status" id="ddt-msg"></div>
+      </div>
+      <small class="hint" data-i18n="ui.ddt_hint">DDT4All's ecu.zip. It stays on this PC; DusterScan only reads the modules with it, never writes.</small>
     </div>
     <div class="row end">
       <button type="button" class="btn btn-outline" onclick="this.closest('dialog').close('cancel')"><span data-i18n="ui.cancel">Cancel</span></button>

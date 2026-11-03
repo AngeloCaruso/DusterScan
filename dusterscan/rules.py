@@ -15,12 +15,17 @@ ENGINE_TX = "7E0"
 SAFETY_KINDS = {"abs", "steering", "airbag"}
 
 
-def engine_direct_states(report: dict) -> dict[str, dict]:
-    """Code -> state message as reported by addressing the engine computer directly."""
+def engine_direct(report: dict) -> dict[str, dict]:
+    """Code -> the entry the engine computer gave when addressed directly (state, Renault details)."""
     for ecu in report.get("ecus", []):
         if ecu.get("tx") == ENGINE_TX:
-            return {d["code"]: d["state"] for d in ecu.get("dtcs", [])}
+            return {d["code"]: d for d in ecu.get("dtcs", [])}
     return {}
+
+
+def engine_direct_states(report: dict) -> dict[str, dict]:
+    """Code -> state message as reported by addressing the engine computer directly."""
+    return {code: d["state"] for code, d in engine_direct(report).items()}
 
 
 def _live(report: dict) -> dict[str, dict]:
@@ -66,6 +71,50 @@ def _ecu_code_severity(kind: str, d: dict) -> str:
     return "low"
 
 
+# Code age, from the mileage the module stored with the code (Renault database)
+OLD_KM = 5000      # a single old occurrence matters less
+RECENT_KM = 500    # a recent code in a safety system matters more
+
+
+def _code_age(d: dict | None, odometer: int | None) -> tuple[int | None, int | None]:
+    """(km since the code was stored, occurrences); None when unknown."""
+    ext = (d or {}).get("extended") or {}
+    km = ext.get("mileage_km")
+    ago = odometer - km if odometer and km is not None and odometer >= km else None
+    return ago, ext.get("occurrences")
+
+
+def _age_adjusted(sev: str, d: dict | None, odometer: int | None, safety: bool) -> str:
+    ago, times = _code_age(d, odometer)
+    if ago is None or (d or {}).get("state_id") == "active":
+        return sev
+    i = SEVERITY_ORDER.index(sev)
+    if ago > OLD_KM and (times or 1) <= 1 and i < SEVERITY_ORDER.index("low"):
+        return SEVERITY_ORDER[i + 1]
+    if ago < RECENT_KM and safety and i > SEVERITY_ORDER.index("medium"):
+        return "medium"
+    return sev
+
+
+def _history(d: dict | None, odometer: int | None):
+    """" Stored at 89,420 km (580 km ago), 3 times." when the module recorded it."""
+    ext = (d or {}).get("extended") or {}
+    parts = []
+    km = ext.get("mileage_km")
+    ago, times = _code_age(d, odometer)
+    if km is not None:
+        parts.append(msg("finding.history_km_ago", km=km, ago=ago) if ago is not None
+                     else msg("finding.history_km", km=km))
+    if times:
+        parts.append(msg("finding.history_times", n=times))
+    return msg("finding.history", parts=parts) if parts else ""
+
+
+def _renault(d: dict | None):
+    name = (d or {}).get("renault_name")
+    return msg("finding.renault_name", name=name) if name else ""
+
+
 def _is_network_code(d: dict) -> bool:
     """U codes (communication between modules, supply voltage) that are not failing right now.
 
@@ -74,6 +123,32 @@ def _is_network_code(d: dict) -> bool:
     so they are reported as one finding instead of one per code.
     """
     return d["code"].startswith("U") and d["state_id"] != "active"
+
+
+SUPPLY_DROP_V = 0.5   # a module reading this much below the OBD socket voltage
+
+
+def _battery_test_findings(bt: dict) -> list[dict]:
+    out = []
+    if bt.get("crank") == "weak":
+        name = "batt_test_brownout" if bt.get("brownout") else "batt_test_crank_weak"
+        out.append(_finding("medium", "battery", name, v=bt.get("crank_min_v") or 0))
+    elif bt.get("crank") == "fair":
+        out.append(_finding("low", "battery", "batt_test_crank_fair", v=bt["crank_min_v"]))
+    if bt.get("rest") == "low":
+        out.append(_finding("medium", "battery", "batt_test_rest_low", v=bt["rest_v"]))
+    elif bt.get("rest") == "fair":
+        out.append(_finding("low", "battery", "batt_test_rest_fair", v=bt["rest_v"]))
+    if bt.get("idle") == "low":
+        out.append(_finding("high", "charging", "batt_test_charge_low", v=bt["idle_v"]))
+    elif bt.get("idle") == "high":
+        out.append(_finding("medium", "charging", "batt_test_charge_high", v=bt["idle_v"]))
+    if bt.get("load") == "low" and bt.get("idle") != "low":
+        out.append(_finding("medium", "charging", "batt_test_load_low", v=bt["load_v"], idle=bt.get("idle_v") or 0))
+    if not out and bt.get("crank"):
+        out.append(_finding("info", "battery", "batt_test_ok", rest=bt.get("rest_v") or 0,
+                            crank=bt.get("crank_min_v") or 0, idle=bt.get("idle_v") or 0))
+    return out
 
 
 def evaluate(report: dict) -> list[dict]:
@@ -100,13 +175,19 @@ def evaluate(report: dict) -> list[dict]:
     dtcs = obd.get("dtcs", {})
     stored_codes = {d["code"] for d in dtcs.get("stored", [])}
     obd_codes = {d["code"] for items in dtcs.values() for d in items}
-    direct = engine_direct_states(report)
+    direct = engine_direct(report)
+    odometer = report.get("meta", {}).get("odometer_km")
 
     def also(code):
-        return msg("finding.direct_state", state=direct[code]) if code in direct else ""
+        d = direct.get(code)
+        if not d:
+            return ""
+        return msg("finding.direct_more", direct=msg("finding.direct_state", state=d["state"]),
+                   renault=_renault(d), history=_history(d, odometer))
 
     for d in dtcs.get("stored", []):
-        f.append(_finding(_obd_code_severity(d["code"]), "engine", codes=[d["code"]],
+        sev = _age_adjusted(_obd_code_severity(d["code"]), direct.get(d["code"]), odometer, False)
+        f.append(_finding(sev, "engine", codes=[d["code"]],
                           title=msg("finding.code_title", code=d["code"], desc=d["description"]),
                           detail=msg("finding.obd_stored.detail", also=also(d["code"]))))
     for d in dtcs.get("pending", []):
@@ -127,6 +208,8 @@ def evaluate(report: dict) -> list[dict]:
     silent = []
     network: dict[str, list] = {}   # code -> modules, for the grouped finding
     network_modules = []
+    network_times: dict[str, int] = {}   # code -> most occurrences any module counted
+    network_ago: dict[str, int] = {}     # code -> most recent km ago
     for ecu in report.get("ecus", []):
         if not ecu.get("responded"):
             silent.append(ecu["name"])
@@ -144,15 +227,28 @@ def evaluate(report: dict) -> list[dict]:
                     network[d["code"]].append(ecu["name"])
                 if ecu["name"] not in network_modules:
                     network_modules.append(ecu["name"])
+                ago, times = _code_age(d, odometer)
+                if times:
+                    network_times[d["code"]] = max(network_times.get(d["code"], 0), times)
+                if ago is not None:
+                    network_ago[d["code"]] = min(network_ago.get(d["code"], ago), ago)
                 continue
             ftb = msg("finding.ftb_suffix", ftb=d["failure_type"]) if d.get("failure_type") else ""
-            f.append(_finding(_ecu_code_severity(ecu.get("kind", ""), d), ecu["name"], codes=[d["code"]],
+            safety = ecu.get("kind", "") in SAFETY_KINDS
+            sev = _age_adjusted(_ecu_code_severity(ecu.get("kind", ""), d), d, odometer, safety)
+            desc = d.get("renault_name") or d["description"]
+            f.append(_finding(sev, ecu["name"], codes=[d["code"]],
                               title=msg("finding.ecu_code.title", code=d["code"], ftb=ftb, state=d["state"]),
-                              detail=msg("finding.ecu_code.detail", desc=d["description"], ecu=ecu["name"],
-                                         tx=ecu["tx"], rx=ecu["rx"])))
+                              detail=msg("finding.ecu_code.detail", desc=desc, ecu=ecu["name"],
+                                         tx=ecu["tx"], rx=ecu["rx"], history=_history(d, odometer))))
     if network:
         codes = sorted(network)
-        listing = [msg("finding.network_event.code", code=c, modules=network[c]) for c in codes]
+        listing = []
+        for c in codes:
+            extra = [msg("finding.history_times", n=network_times[c])] if c in network_times else []
+            if c in network_ago:
+                extra.append(msg("finding.history_ago", ago=network_ago[c]))
+            listing.append(msg("finding.network_event.code", code=c, modules=network[c] + extra))
         f.append(_finding("low", "network", "network_event", codes=codes,
                           n=len(network_modules), modules=network_modules, listing=listing))
     if silent:
@@ -165,8 +261,21 @@ def evaluate(report: dict) -> list[dict]:
         listing = [msg("finding.vin_mismatch.item", module=names.get(k, k), vin=v) for k, v in vins.items()]
         f.append(_finding("low", "modules", "vin_mismatch", listing=listing))
 
-    # Battery / charging
-    v = report.get("adapter", {}).get("battery_voltage_start")
+    # Modules that measure a lower supply voltage than the OBD socket: a poor ground or connector
+    ref = report.get("adapter", {}).get("battery_voltage_end") or report.get("adapter", {}).get("battery_voltage_start")
+    low_supply = []
+    for ecu in report.get("ecus", []):
+        sv = (ecu.get("module_data") or {}).get("supply_voltage")
+        if ref and sv is not None and ref - sv > SUPPLY_DROP_V:
+            low_supply.append(msg("finding.supply_low.item", module=ecu["name"], v=sv))
+    if low_supply:
+        f.append(_finding("low", "charging", "supply_low", ref=ref, listing=low_supply))
+
+    # Battery / charging: the guided test, when one was made, else the scan's two readings
+    bt = report.get("battery_test")
+    if bt:
+        f += _battery_test_findings(bt)
+    v = None if bt else report.get("adapter", {}).get("battery_voltage_start")
     if v is not None:
         if running:
             if v < 13.0:

@@ -15,11 +15,33 @@ from __future__ import annotations
 import ctypes
 import json
 import locale
+import string
 import sys
 from pathlib import Path
 
 LANGUAGES = {"en": "English", "es": "Español"}
 DEFAULT = "en"
+# Languages that write 89.420 km and 12,4 V (thousands with a dot, decimals with a comma)
+DECIMAL_COMMA = {"es"}
+
+
+class _Formatter(string.Formatter):
+    """str.format that writes number separators the way the language does."""
+
+    def __init__(self, lang: str):
+        super().__init__()
+        self.lang = lang
+
+    def format_field(self, value, spec):
+        out = super().format_field(value, spec)
+        if self.lang in DECIMAL_COMMA and isinstance(value, (int, float)) and ("," in spec or "." in spec):
+            out = out.translate(str.maketrans(",.", ".,"))
+        return out
+
+
+def number(value, lang: str, spec: str = ",") -> str:
+    """A number with the language's separators: number(89420, "es") -> "89.420"."""
+    return _Formatter(lang).format("{0:" + spec + "}", value)
 
 _cache: dict[str, dict[str, str]] = {}
 
@@ -76,7 +98,7 @@ def t(key: str, lang: str = DEFAULT, **params) -> str:
     if not params:
         return template
     try:
-        return template.format(**{k: _param(v, lang) for k, v in params.items()})
+        return _Formatter(lang).format(template, **{k: _param(v, lang) for k, v in params.items()})
     except (KeyError, IndexError, ValueError):
         return template
 

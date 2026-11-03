@@ -11,22 +11,20 @@
 # faster start, far fewer false positives. UPX compression is disabled for the
 # same reason, and the .exe carries proper version information.
 #
-# The build virtual environment lives in %LOCALAPPDATA%\DusterScan-build so it
-# works even when this folder is on a network or WSL path.
+# It builds with the project's .venv (setup.ps1 creates it if it is missing).
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$venv = Join-Path $env:LOCALAPPDATA "DusterScan-build\venv"
 $work = Join-Path $env:TEMP "dusterscan-build"
-$py = Join-Path $venv "Scripts\python.exe"
+$py = Join-Path $root ".venv\Scripts\python.exe"
 $dist = Join-Path $root "dist"
 
 if (-not (Test-Path $py)) {
-    Write-Host "Creating build environment..."
-    py -3 -m venv $venv
+    & (Join-Path $root "setup.ps1")
+} else {
+    & $py -m pip install --disable-pip-version-check -q -r "$root\requirements-dev.txt"
+    if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 }
-& $py -m pip install --disable-pip-version-check -q -r "$root\requirements.txt" pyinstaller
-if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
 # Version resource (shown in the .exe's Properties > Details).
 $version = (Select-String -Path "$root\dusterscan\__init__.py" -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
@@ -71,7 +69,17 @@ Copy-Item "$root\assets\DusterScan.exe.config" (Join-Path $dist "DusterScan\Dust
 
 $zip = Join-Path $dist "DusterScan-$version-win64.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
-Compress-Archive -Path (Join-Path $dist "DusterScan") -DestinationPath $zip
+# Antivirus scanners briefly lock files PyInstaller just wrote; wait and retry instead of failing.
+for ($try = 1; ; $try++) {
+    try {
+        Compress-Archive -Path (Join-Path $dist "DusterScan") -DestinationPath $zip -Force
+        break
+    } catch {
+        if ($try -ge 6) { throw }
+        Write-Host "Files still locked (antivirus scan?), retrying in 5 s..."
+        Start-Sleep -Seconds 5
+    }
+}
 
 Write-Host ""
 Write-Host "Built $dist\DusterScan\DusterScan.exe"

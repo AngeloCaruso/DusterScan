@@ -79,7 +79,7 @@ def test_starting_a_scan_stops_live_data():
     api._elm = connected_car()[1]
     api._lang = lambda: "en"
     api._autosave = lambda: ""   # don't write demo reports into the user's Documents
-    assert api.start_live() == {"ok": True}
+    assert api.start_live()["ok"]
     assert wait_for("live")
     assert api.start_scan(False) == {"ok": True}
     assert wait_for("scan_done", timeout=60)

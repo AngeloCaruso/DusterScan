@@ -57,6 +57,8 @@ class SimEcu:
     session_only: bool = False            # 21 / 17 only in the extended session
     session: int = 0x81
     dids: dict = field(default_factory=dict)
+    reads: dict = field(default_factory=dict)   # request hex -> reply, as in ddt/demo.py's definitions
+    ext: dict = field(default_factory=dict)     # "19 06" records: DTC hex -> {record hex: data}
 
 
 class SimulatedCar:
@@ -77,6 +79,30 @@ class SimulatedCar:
         self.received: list[str] = []
         self.t0 = time.monotonic()
         self.ecus = self._build_ecus()
+        # Battery test: a start-up voltage curve after crank(); brownout = the adapter resets in the dip
+        self._crank_at: float | None = None
+        self.loads_on = False
+        self.brownout = False
+
+    def crank(self) -> None:
+        """The driver turns the key (battery test)."""
+        self._crank_at = time.monotonic()
+
+    def _voltage(self) -> float | None:
+        if self._crank_at is not None:
+            t = time.monotonic() - self._crank_at
+            if t < 0.15:
+                return 11.4
+            if t < 1.2:
+                if self.brownout:
+                    self.engine_running = True
+                    return None
+                return 9.8 + (0.2 if int(t * 20) % 2 else 0.0)
+            self.engine_running = True
+            self._crank_at = None
+        if not self.engine_running:
+            return 12.4
+        return 13.7 if self.loads_on else 14.1
 
     # -- serial interface --------------------------------------------------
 
@@ -110,23 +136,39 @@ class SimulatedCar:
         def noise(*codes: str, status: int = 0x50) -> list[bytes]:
             return [uds_dtc(c, 0x00, status) for c in codes]
 
+        def reads(**replies: str) -> dict:
+            return {k[1:]: bytes.fromhex(v) for k, v in replies.items()}
+
+        def ext(km: int, times: int) -> dict:
+            return {"80": km.to_bytes(3, "big"), "82": bytes([times])}
+
         return {
             0x7E0: SimEcu(0x7E8, renault_ident("0960R", 0x44, "S3S", "4953R", "00DE", "4500"),
                           dtcs=[uds_dtc("P0171", 0x00, 0x28), uds_dtc("P0304", 0x00, 0x24)] + noise("P0300", "P0420"),
-                          slow=True),
+                          slow=True,
+                          reads=reads(_222001="6220018D", _222002="62200282", _222003="622003031A",
+                                      _222004="62200400", _222005="622005463452"),
+                          ext={"017100": ext(89420, 3), "030400": ext(89950, 1)}),
             0x7E1: SimEcu(0x7E9, renault_ident("1146R", 0x07, "AIW", "2251R", "0042", "0102"),
-                          kwp_dtcs=bytes([0x57, 0]), vin=None, session_only=True),
+                          kwp_dtcs=bytes([0x57, 0]), vin=None, session_only=True,
+                          reads=reads(_2101="61017303", _2102="61022A")),
             0x740: SimEcu(0x760, renault_ident("9605R", 0x08, "037", "9351R", "4569", "0170"),
                           dtcs=[uds_dtc("C0020", 0x1C, 0x68), uds_dtc("U3003", 0x16, 0x28), uds_dtc("U0100", 0x00, 0x28)]
-                          + noise("C0031", "C0034", "C0037", "C003A") + noise("U3003", status=0x40)),
+                          + noise("C0031", "C0034", "C0037", "C003A") + noise("U3003", status=0x40),
+                          reads=reads(_224B01="624B010000", _224B02="624B0277"),
+                          ext={"40201C": ext(85868, 2), "F00316": ext(85868, 5), "C10000": ext(85868, 1)}),
             0x743: SimEcu(0x763, None,
                           dtcs=[uds_dtc("U3003", 0x16, 0x28), uds_dtc("B1404", 0x13, 0x20)] + noise("B1412"),
-                          dids={0xF187: b"248103544R", 0xF18A: b"92M"}),
+                          dids={0xF187: b"248103544R", 0xF18A: b"92M"},
+                          reads=reads(_220201="62020132")),
             0x745: SimEcu(0x765, renault_ident("0447R", 0x05, "001", "00000", "1419", "1030"),
                           dtcs=[uds_dtc("U0121", 0x87, 0x28)] + noise("B1504", "B1510", "B1550", status=0x10),
-                          honours_mask=False),
+                          honours_mask=False,
+                          reads=reads(_220101="62010186", _220102="62010200", _220103="620103015F90"),
+                          ext={"C12187": ext(85000, 2)}),
             0x752: SimEcu(0x772, renault_ident("3868R", 0x04, "AMR", "02040", "1630", "1630"),
-                          dtcs=[uds_dtc("B1047", 0x13, 0x28)], slow=True),
+                          dtcs=[uds_dtc("B1047", 0x13, 0x28)], slow=True,
+                          reads=reads(_2130="61302122"), ext={"904713": ext(61200, 1)}),
         }
 
     def _emit(self, text: str) -> None:
@@ -159,7 +201,8 @@ class SimulatedCar:
         if c == "I":
             return "ELM327 v1.5"
         if c == "RV":
-            return "14.1V" if self.engine_running else "12.4V"
+            v = self._voltage()
+            return "LV RESET" if v is None else f"{v:.1f}V"
         if c == "DPN":
             return "A" + self.protocol
         if c.startswith("E"):
@@ -212,6 +255,16 @@ class SimulatedCar:
             return answer(bytes([0x50, req[1]]))
         if sid == 0x3E:
             return answer(bytes([0x7E, req[1] if len(req) > 1 else 0]))
+        if ecu.slow and self.timeout_ms < 300 and sid in (0x19, 0x21, 0x22) and req[1:2] != b"\x80":
+            return []  # a slow module: the adapter gives up before it answers
+        if req.hex().upper() in ecu.reads:
+            return refuse(0x80) if locked else answer(ecu.reads[req.hex().upper()])
+        if sid == 0x19 and len(req) == 6 and req[1] == 0x06 and ecu.dtcs is not None:
+            record = next((r for r in ecu.dtcs if r[:3] == req[2:5]), None)
+            data = ecu.ext.get(req[2:5].hex().upper(), {}).get(f"{req[5]:02X}")
+            if record is None or data is None:
+                return refuse(0x31)
+            return answer(b"\x59\x06" + req[2:5] + record[3:4] + req[5:6] + data)
         if sid == 0x21:
             if ecu.ident is None:
                 return refuse(0x11)
@@ -229,8 +282,6 @@ class SimulatedCar:
             value = VIN if did == 0xF190 else ecu.dids.get(did)
             return answer(b"\x62" + req[1:3] + value) if value else refuse(0x31)
         if sid == 0x19 and ecu.dtcs is not None:
-            if ecu.slow and self.timeout_ms < 300:
-                return []
             mask = req[2] if len(req) > 2 and ecu.honours_mask else 0xFF
             records = b"".join(r for r in ecu.dtcs if r[3] & mask)
             return answer(bytes([0x59, 0x02, 0xFF]) + records)

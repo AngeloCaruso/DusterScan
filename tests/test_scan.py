@@ -11,7 +11,7 @@ from dusterscan.simulator import SimulatedCar
 LEAKED_KEY = re.compile(
     r"\b(?:ui|error|progress|log|finding|report|note|nrc|state|dtc_kind|system|system_letter|severity|"
     r"scan_type|drive|urgency|diy|likelihood|ident|ecu|pid|pidnote|monitor|ignition|mid|ftb|dtc|vehicle|"
-    r"fuel_status|fuel_type|obd_std|lang)\.[A-Za-z0-9_]+")
+    r"fuel_status|fuel_type|obd_std|lang|ddt)\.[A-Za-z0-9_]+")
 
 
 def run_scan(engine_running=True, deep=False, lang="en"):

@@ -10,6 +10,9 @@ from typing import Callable
 
 from . import __version__, obd2, rules
 from . import dtc as dtcinfo
+from .ddt import match
+from .ddt.reader import STANDARD_BUDGET_S, enrich_module
+from .ddt.store import Database
 from .elm327 import ELM327, AdapterError, Message
 from .i18n import msg, text
 from .renault import KNOWN_ECUS, EcuScanner, sweep_addresses, valid_vin
@@ -19,20 +22,35 @@ ProgressFn = Callable[[float, str], None]
 Target = tuple[int, int] | None   # (request ID, answer ID); None = OBD broadcast
 
 ENGINE = (0x7E0, 0x7E8)
+MODULE_DATA_BUDGET_S = 120.0   # all modules together, standard scan (a deep scan reads everything)
 
 
 class ScanCancelled(Exception):
     pass
 
 
+def odometer_from_modules(ecus: list[dict]) -> tuple[int | None, str | None]:
+    """The total mileage a module reported through its Renault definition (cluster, body), if any."""
+    for ecu in ecus:
+        km = (ecu.get("module_data") or {}).get("odometer_km")
+        if km:
+            return int(km), ecu["kind"]
+    return None, None
+
+
 class Scanner:
     def __init__(self, elm: ELM327, progress: ProgressFn | None = None,
-                 cancel: threading.Event | None = None, samples: int = 6, lang: str = "en"):
+                 cancel: threading.Event | None = None, samples: int = 6, lang: str = "en",
+                 ddt: Database | None = None, ddt_choices: dict | None = None,
+                 odometer_km: int | None = None):
         self.elm = elm
         self.progress = progress or (lambda f, m: None)
         self.cancel = cancel or threading.Event()
         self.samples = samples
         self.lang = lang
+        self.ddt = ddt                      # Renault module database, if imported
+        self.ddt_choices = ddt_choices or {}
+        self.odometer_km = odometer_km      # from Settings (optional); used if no module reports one
         self.messages: list[str] = []
         # Computers that answer standard OBD-II, engine first. Empty = use broadcast.
         self.obd_ecus: list[Target] = []
@@ -214,8 +232,11 @@ class Scanner:
             self._step(0.56, "progress.mode06")
             mode06 = self._mode06()
 
-        # Individual ECUs
-        ecus = self._scan_ecus(deep, 0.60, 0.95)
+        # Individual ECUs, then what the Renault database adds about them
+        ecus = self._scan_ecus(deep, 0.60, 0.85 if self.ddt else 0.95)
+        if self.ddt and elm.is_can:
+            report["ddt"] = self._apply_database(ecus, deep, 0.85, 0.95)
+        self._set_odometer(report["meta"], ecus)
 
         self._step(0.96, "progress.battery")
         elm.reset_target()
@@ -242,6 +263,40 @@ class Scanner:
         # The whole raw adapter conversation (TX/RX), for troubleshooting a real car.
         report["adapter_log"] = [list(entry) for entry in elm.log]
         return report
+
+    def _apply_database(self, ecus: list[dict], deep: bool, f0: float, f1: float) -> dict:
+        """Renault definitions for the modules that match one: code names, code details, values."""
+        db = self.ddt
+        present = [e for e in ecus if e.get("responded")]
+        started = time.monotonic()
+        used = 0
+        self.elm.set_timeout_ms(1000)  # the engine and airbag computers answer slowly
+        try:
+            for j, ecu in enumerate(present):
+                choice = match.resolve(db, ecu, self.ddt_choices)
+                if not choice:
+                    continue
+                self._step(f0 + (f1 - f0) * j / max(1, len(present)), "progress.module_data", name=ecu["name"])
+                left = MODULE_DATA_BUDGET_S - (time.monotonic() - started)
+                budget = None if deep else max(3.0, min(STANDARD_BUDGET_S, left))
+                try:
+                    enrich_module(self.elm, ecu, db, choice, budget, log=self._log)
+                except AdapterError as e:
+                    ecu.setdefault("notes", []).append(e.as_msg())
+                used += ecu.get("definition", {}).get("status") == "used"
+        finally:
+            self.elm.set_timeout_ms(200)
+            self.elm.reset_target()
+        return {"source": db.info, "project": match.vehicle_project(db, present),
+                "matched": used, "modules": len(present)}
+
+    def _set_odometer(self, meta: dict, ecus: list[dict]) -> None:
+        # A module's reading is today's mileage; the number in Settings may be weeks old.
+        km, source = odometer_from_modules(ecus)
+        if not km and self.odometer_km:
+            km, source = int(self.odometer_km), "user"
+        if km:
+            meta["odometer_km"], meta["odometer_source"] = km, source
 
     def _merge_module_data(self, vehicle: dict, ecus: list[dict], dtc_read_from: set[str]) -> None:
         """Fill gaps in the OBD-II data with what the modules reported directly."""

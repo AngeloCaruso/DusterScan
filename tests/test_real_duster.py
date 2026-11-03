@@ -107,12 +107,15 @@ def test_cluster_has_4_codes_and_body_none():
 def test_renault_identification_fields():
     abs_ = parse_renault_ident(bytes.fromhex(IDENTS["abs"]))
     assert abs_ == {"part_suffix": "9605R", "supplier": "037", "hw_suffix": "9351R",
-                    "software": "4569", "edition": "0170"}
+                    "software": "4569", "edition": "0170", "diag_version": "8"}
     assert parse_renault_ident(bytes.fromhex(IDENTS["airbag"]))["supplier"] == "AMR"
     assert parse_renault_ident(bytes.fromhex(IDENTS["cluster"]))["part_suffix"] == "3544R"
+    # the four values the Renault database matches on, as found in DDT4All's index
+    engine = parse_renault_ident(bytes.fromhex(IDENTS["engine"]))
+    assert (engine["diag_version"], engine["supplier"], engine["software"], engine["edition"]) == ("68", "001", "00DE", "4500")
     for raw in IDENTS.values():
         assert set(parse_renault_ident(bytes.fromhex(raw))) == {"part_suffix", "supplier", "hw_suffix",
-                                                                "software", "edition"}
+                                                                "software", "edition", "diag_version"}
     # anything that does not follow the layout falls back to the readable text
     assert parse_renault_ident(bytes.fromhex("6180") + b"\x01\x02ABCDEFG") == {"kwp_ident": "ABCDEFG"}
 

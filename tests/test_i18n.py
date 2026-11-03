@@ -67,7 +67,10 @@ def test_formatting_and_fallbacks():
     assert i18n.normalize("Spanish") == "es" and i18n.normalize("xx") == "en"
     err = i18n.UserError("error.adapter_timeout", seconds=2)
     assert str(err) == "The adapter did not answer within 2.0 s."
-    assert err.text("es") == "El adaptador no respondió en 2.0 s."
+    assert err.text("es") == "El adaptador no respondió en 2,0 s."   # Spanish decimal comma
+    # thousands too: 89.420 km in Spanish is not 89 km
+    assert i18n.t("finding.history_km", "es", km=89420) == "a los 89.420 km"
+    assert i18n.t("finding.history_km", "en", km=89420) == "at 89,420 km"
 
 
 def test_old_language_setting_is_migrated(tmp_path, monkeypatch):

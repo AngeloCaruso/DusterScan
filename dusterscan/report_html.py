@@ -11,9 +11,9 @@ from functools import partial
 from html import escape
 
 from .dtc import describe
-from .i18n import has, normalize, t, text
+from .i18n import DECIMAL_COMMA, has, normalize, number, t, text
 from .obd2 import PIDS
-from .rules import ENGINE_TX, engine_direct_states
+from .rules import ENGINE_TX, engine_direct, engine_direct_states
 
 SEVERITIES = ["critical", "high", "medium", "low", "info"]
 SEV_TONE = {"critical": "red", "high": "red", "medium": "amber", "low": "yellow", "info": "zinc"}
@@ -22,6 +22,9 @@ STATUS_ICON = {"good": "check-circle", "attention": "alert-triangle", "problems"
 DRIVE_TONE = {"yes": "green", "yes_with_caution": "amber", "no": "red"}
 OBD_KIND_TONE = {"stored": "red", "pending": "amber", "permanent": "zinc"}
 ECU_STATE_TONE = {"active": "red", "stored": "yellow", "pending": "amber", "failed_earlier": "zinc", "recorded": "zinc"}
+GRADE_TONE = {"good": "green", "ok": "green", "fair": "amber", "low": "red", "weak": "red", "high": "red"}
+TONE_RANK = ["zinc", "green", "amber", "red"]   # worst last
+TIER_TONE = {"exact": "green", "same_software": "green", "same_family": "amber", "same_address": "zinc"}
 
 # Lucide icons (ISC licence), inlined so saved reports work offline.
 ICONS = {
@@ -184,6 +187,19 @@ CSS = """
 .ds-report .tile .tl{display:block;font:10px/14px var(--mono);text-transform:uppercase;color:var(--muted-2);overflow-wrap:anywhere}
 .ds-report .tile[class*="t-"] .tl{color:var(--tone);font-weight:600}
 .ds-report .tile .tv{display:block;margin-top:4px;font:600 12px/16px var(--mono);color:var(--tone,var(--fg));font-variant-numeric:tabular-nums}
+.ds-report .tile .chip{margin-top:6px}
+.ds-report .tile .tsub{display:block;margin-top:4px;font-size:11px;line-height:16px;color:var(--muted-2)}
+.ds-report .mdata{display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:8px;border:1px solid var(--border);background:var(--card)}
+.ds-report .mdata+.mdata{margin-top:12px}
+.ds-report .mdata-head{display:flex;flex-direction:column;gap:2px}
+.ds-report .mdata-head b{color:var(--fg-strong);font-weight:600}
+.ds-report .mdata-head .sub,.ds-report td .sub .chip{font-size:11px;color:var(--muted-2)}
+.ds-report .mdata details{border-top:1px solid var(--border);padding-top:8px}
+.ds-report .mdata summary{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:500;color:var(--fg-3)}
+.ds-report .mdata summary:focus-visible{outline:2px solid rgb(0 229 255/.6)}
+.ds-report .mdata summary .count{height:18px;padding:0 6px;font-size:10px}
+.ds-report .mdata details .tbl{margin-top:8px}
+.ds-report .chip{vertical-align:middle}
 /* modules */
 .ds-report .idcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
 .ds-report .idcard{display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:8px;border:1px solid var(--border);background:var(--card);padding:16px;min-width:0}
@@ -231,7 +247,8 @@ def chip(label: str, tone: str = "zinc", plain: bool = False) -> str:
 
 def _fmt(v, lang: str) -> str:
     if isinstance(v, float):
-        return f"{v:.2f}".rstrip("0").rstrip(".")
+        s = f"{v:.2f}".rstrip("0").rstrip(".")
+        return s.replace(".", ",") if lang in DECIMAL_COMMA else s
     return e(text(v, lang))
 
 
@@ -336,6 +353,16 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
     def X(value) -> str:  # escaped text of any report value
         return e(text(value, lang))
 
+    def definition_label(d: dict) -> str:
+        """Which Renault definition a module was read with, and how sure the match is."""
+        if not d:
+            return ""
+        if d.get("status") == "rejected":
+            return f'{chip(T("report.def_rejected"), "red")} {X(d.get("reason", ""))}'
+        how = T("report.def_chosen") if d.get("chosen") == "user" else T(f"report.tier_{d.get('tier')}")
+        return (f'{e(T("report.def_used"))}: <span class="mono">{e(d.get("ecuname", ""))}</span> '
+                f'{chip(how, TIER_TONE.get(d.get("tier"), "zinc"))}')
+
     meta, veh, ad = report.get("meta", {}), report.get("vehicle", {}), report.get("adapter", {})
     summ, obd = report.get("summary", {}), report.get("obd", {})
     ecus = report.get("ecus", [])
@@ -356,6 +383,12 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
            f'<span class="sep">•</span><span class="ts">{icon("clock")}{e(T("report.scanned_at", date=scanned))}</span>']
     if vin:
         sub.append(f'<span class="sep">•</span><span class="vin">{e(T("report.vin"))}: <code>{e(vin)}</code></span>')
+    if meta.get("odometer_km"):
+        src = meta.get("odometer_source")
+        km = T("report.odometer", km=number(int(meta["odometer_km"]), lang))
+        if src and src != "user":
+            km += f' ({T("report.odometer_from", module=T(f"ecu.{src}"))})'
+        sub.append(f'<span class="sep">•</span><span class="ts">{e(km)}</span>')
     status_box = (f'<div class="status-box t-{stone}">{icon(STATUS_ICON.get(status, "alert-triangle"))}<div>'
                   f'<div class="sb-label">{e(T(f"report.status_label.{status}"))}</div>'
                   f'<div class="sb-text">{e(T(f"report.status.{status}"))}</div></div></div>')
@@ -363,6 +396,14 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
     v_start, v_end = ad.get("battery_voltage_start"), ad.get("battery_voltage_end")
     battery = f"{_fmt(v_start, lang)} V" + (f" → {_fmt(v_end, lang)} V" if v_end else "") if v_start else "–"
     btone = "zinc" if v_start is None else "red" if v_start < 12.0 else "amber" if v_start < 12.4 or v_start > 15 else "green"
+    battery_sub = ""
+    bt = report.get("battery_test")
+    if bt:  # the guided test says more than two readings
+        grades = [bt.get(k) for k in ("rest", "crank", "idle", "load") if bt.get(k)]
+        btone = max((GRADE_TONE.get(g, "zinc") for g in grades), key=TONE_RANK.index, default="zinc")
+        battery = f'{_fmt(bt.get("rest_v"), lang)} V' if bt.get("rest_v") is not None else "–"
+        if bt.get("crank_min_v") is not None:
+            battery_sub = T("report.battery_test_kpi", crank=_fmt(bt["crank_min_v"], lang))
     protocol = str(ad.get("protocol", ""))
     p_main, _, p_detail = protocol.partition(" (")
     mil_on = summ.get("mil_on")
@@ -374,7 +415,8 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
         (f't-{"red" if mil_on else "green"}', T("report.mil"),
          f'<div class="kpi-val toned"><span class="dot{" pulse" if mil_on else ""}"></span>{e((T("report.on") if mil_on else T("report.off")).upper())}</div>'),
         (f"t-{btone}" if btone != "green" else "", T("report.battery"),
-         f'<div class="kpi-val toned t-{btone}">{icon("activity")}<span>{battery}</span></div>'),
+         f'<div><div class="kpi-val toned t-{btone}">{icon("activity")}<span>{battery}</span></div>'
+         + (f'<span class="kpi-sub">{e(battery_sub)}</span>' if battery_sub else "") + "</div>"),
         ("", T("report.protocol"),
          f'<div><span class="kpi-val" title="{e(protocol)}">{e(p_main)}</span><span class="kpi-sub">{e(p_detail.rstrip(")"))}</span></div>'),
         ("", T("report.adapter"),
@@ -395,11 +437,14 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
     tabs = []
     if ai:
         tabs.append(("r-ai", T("report.tab_ai"), ""))
+    with_data = [m for m in ecus if m.get("module_data")]
     tabs += [
         ("r-checks", T("report.automatic_checks"), f'<span class="count">{len(findings)}</span>'),
         ("r-codes", T("report.codes_heading"), f'<span class="count{" t-red" if total_codes else ""}">{total_codes}</span>'),
         ("r-emissions", T("report.tab_emissions"), ""),
         ("r-live", T("report.tab_live"), ""),
+        *([("r-battery", T("report.tab_battery"), "")] if bt else []),
+        *([("r-moddata", T("report.tab_module_data"), f'<span class="count">{len(with_data)}</span>')] if with_data else []),
         ("r-modules", T("report.tab_modules"), ""),
         ("r-log", T("report.tab_log"), ""),
     ]
@@ -436,6 +481,27 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
     # -- fault codes -----------------------------------------------------------------
     rows = []
     direct = engine_direct_states(report)
+    direct_entries = engine_direct(report)
+    odometer = meta.get("odometer_km")
+
+    def meaning(code: str, d: dict | None) -> str:
+        """Renault's name first when the module's definition gave one, the generic meaning below."""
+        generic = X(describe(code)[0])
+        name = (d or {}).get("renault_name")
+        return f'<b>{e(name)}</b><span class="sub">{generic}</span>' if name else generic
+
+    def history(d: dict | None) -> str:
+        ext = (d or {}).get("extended") or {}
+        parts = []
+        if ext.get("mileage_km") is not None:
+            km = int(ext["mileage_km"])
+            ago = odometer - km if odometer and odometer >= km else None
+            parts.append(T("report.stored_at_ago", km=number(km, lang), ago=number(ago, lang)) if ago is not None
+                         else T("report.stored_at", km=number(km, lang)))
+        if ext.get("occurrences"):
+            parts.append(T("report.times", n=ext["occurrences"]))
+        return f'<span class="sub">{e(" · ".join(parts))}</span>' if parts else ""
+
     obd_codes = set()
     for kind, items in obd.get("dtcs", {}).items():
         for d in items:
@@ -444,19 +510,20 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
             state = f'<b>{e(T(f"dtc_kind.{kind}"))}</b>'
             if d["code"] in direct:
                 state += f' · {e(T("report.direct_read_only", state=direct[d["code"]]))}'
-            rows.append((T("report.engine_obd"), d["code"], describe(d["code"])[0], state, "", tone))
+            de = direct_entries.get(d["code"])
+            rows.append((T("report.engine_obd"), d["code"], meaning(d["code"], de), state + history(de), "", tone))
     for ecu in ecus:
         for d in ecu.get("dtcs", []):
             if ecu["tx"] == ENGINE_TX and d["code"] in obd_codes:
                 continue
             tone = ECU_STATE_TONE.get(d.get("state_id"), "zinc")
-            rows.append((ecu["name"], d["code"], describe(d["code"])[0], f"<b>{X(d['state'])}</b>",
+            rows.append((ecu["name"], d["code"], meaning(d["code"], d), f"<b>{X(d['state'])}</b>{history(d)}",
                          d.get("failure_type", ""), tone))
     if rows:
         body = _table([e(T(k)) for k in ("report.col_module", "report.col_code", "report.col_meaning",
                                           "report.col_state", "report.col_failure")],
                       [f'<tr class="t-{r[5]}"><td class="strong">{X(r[0])}</td><td>{chip(r[1], r[5], plain=True)}</td>'
-                       f'<td class="meaning">{X(r[2])}</td><td class="state">{r[3]}</td>'
+                       f'<td class="meaning">{r[2]}</td><td class="state">{r[3]}</td>'
                        f'<td class="state">{X(r[4]) or "—"}</td></tr>' for r in rows])
     else:
         body = f'<div class="empty">{e(T("report.no_codes"))}</div>'
@@ -527,6 +594,47 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
                         badges=f'<span class="count">{e(T("report.params_count", n=len(live)))}</span>' if live else "",
                         meta=f'<span class="sec-meta">{e(T("report.mode01"))}</span>'))
 
+    # -- battery & charging test ------------------------------------------------------------
+    if bt:
+        cells = []
+        for key, v, grade, sub_text in (
+                ("rest", bt.get("rest_v"), bt.get("rest"), ""),
+                ("crank", bt.get("crank_min_v"), bt.get("crank"),
+                 T("report.batt_brownout") if bt.get("brownout") else
+                 T("report.batt_seconds", s=_fmt(bt["crank_s"], lang)) if bt.get("crank_s") else ""),
+                ("idle", bt.get("idle_v"), bt.get("idle"),
+                 T("report.batt_ecu", v=_fmt(bt["ecu_v"], lang)) if bt.get("ecu_v") else ""),
+                ("load", bt.get("load_v"), bt.get("load"), "")):
+            tone = GRADE_TONE.get(grade, "zinc")
+            cells.append(f'<div class="tile t-{tone}"><span class="tl">{e(T(f"report.batt_{key}"))}</span>'
+                         f'<span class="tv">{_fmt(v, lang) + " V" if v is not None else "–"}</span>'
+                         f'{chip(T(f"report.grade_{grade}") if grade else "–", tone)}'
+                         f'<span class="tsub">{e(sub_text)}</span></div>')
+        body = (f'<div class="tiles">{"".join(cells)}</div>'
+                f'<p class="note">{e(T("report.batt_note", at=str(bt.get("at", ""))[:16].replace("T", " ")))}</p>')
+        out.append(_section("r-battery", T("report.battery_heading"), body))
+
+    # -- module data (Renault database) --------------------------------------------------------
+    if with_data:
+        blocks = []
+        for m in with_data:
+            data = m["module_data"]
+            groups = []
+            for i, g in enumerate(data.get("groups", [])):
+                trs = "".join(
+                    f'<tr><td>{e(v["item"])}</td><td class="mono nowrap">{_fmt(v["value"], lang)}'
+                    f'{(" " + e(v["unit"])) if v.get("unit") else ""}</td></tr>' for v in g["values"])
+                groups.append(f'<details{" open" if i < 2 else ""}><summary>{X(g["name"])}'
+                              f'<span class="count">{len(g["values"])}</span></summary>'
+                              f'<div class="tbl"><table><tbody>{trs}</tbody></table></div></details>')
+            cut = f'<p class="note">{e(T("report.module_partial", n=data.get("read", 0), total=data.get("total", 0)))}</p>' \
+                if data.get("partial") else ""
+            blocks.append(f'<div class="mdata"><div class="mdata-head"><b>{X(m["name"])}</b>'
+                          f'<span class="sub">{definition_label(m.get("definition") or {})}</span></div>'
+                          f'{"".join(groups)}{cut}</div>')
+        out.append(_section("r-moddata", T("report.module_data_heading"), "".join(blocks),
+                            meta=f'<span class="sec-meta">{e(T("report.module_data_meta"))}</span>'))
+
     # -- modules & hardware ---------------------------------------------------------------
     parts = []
     cal = veh.get("calibration_ids", [])
@@ -549,6 +657,8 @@ def render_body(report: dict, ai: dict | None = None, lang: str = "en") -> str:
                 f'<span class="sub">{e(T(f"ident.{k}") if has(f"ident.{k}") else k)}: <span class="mono">{e(v)}</span></span>'
                 for k, v in m["identification"].items() if k != "raw")
             notes = "".join(f'<span class="sub">{X(n)}</span>' for n in m.get("notes", []))
+            if m.get("definition"):
+                notes = f'<span class="sub">{definition_label(m["definition"])}</span>' + notes
             dtcs = m.get("dtcs", [])
             via_obd = m.get("dtc_via_obd")
             if via_obd:

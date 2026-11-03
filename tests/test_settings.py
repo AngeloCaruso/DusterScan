@@ -27,9 +27,14 @@ def test_api_key_goes_to_credential_store_not_file(tmp_path, monkeypatch):
 
     settings.save({"api_key": "sk-test-123"})
     settings.save({"language": "es"})
-    assert settings.load() == {"api_key": "sk-test-123", "language": "es"}
+    assert settings.load() == {"api_key": "sk-test-123", "language": "es", "ddt_choices": {},
+                               "odometer_km": None, "odometer_at": None}
     assert "sk-test" not in (tmp_path / "settings.json").read_text(encoding="utf-8")
     assert json.loads((tmp_path / "settings.json").read_text(encoding="utf-8")) == {"language": "es"}
+    # saving one setting keeps the others
+    settings.save({"ddt_choices": {"740|8|037|4569|0170": "generic"}})
+    assert settings.load()["language"] == "es"
+    assert settings.load()["ddt_choices"] == {"740|8|037|4569|0170": "generic"}
 
     settings.save({"api_key": ""})
     assert settings.load()["api_key"] == ""

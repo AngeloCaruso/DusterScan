@@ -5,3 +5,8 @@ build/
 dist/
 *.spec
 .pytest_cache/
+# Renault module database (proprietary; each user imports their own copy)
+ecu.zip
+# Real scans contain the car's VIN
+first_scan/
+.claude/

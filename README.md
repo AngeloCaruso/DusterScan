@@ -42,10 +42,51 @@ is one.
    - **Deep** also searches every other diagnostic address (~3 minutes).
 4. Optionally describe symptoms, then press **Analyse report**.
 
-**Live data** (the button under the connection details) shows the engine's readings updating
-continuously, with a short history line for each, until you stop it: useful for watching
-the warm-up, fuel trims or O2 sensors while you rev the engine or drive. It uses the same
-read-only OBD-II requests as the scan; starting a scan stops it.
+**Settings** (top right) holds the three things you set once: the Anthropic API key, the
+**odometer** (optional: it lets the report say how long ago each fault code was stored; when a
+module reports the mileage through the Renault database, that reading is used instead, so a
+number typed weeks ago never overrides the car) and the **Renault module database**.
+
+**Live data** (the button under the connection details) shows readings updating
+continuously, with a short history line for each, until you stop it: the engine over OBD-II,
+or, with the Renault database, any module that was read with a definition (pick the module
+and one of its screens, for example the gearbox oil temperature). It uses the same read-only
+requests as the scan; starting a scan stops it.
+
+**Battery test** (next to Live data) is a one-minute guided test: battery at rest with the
+engine off, the lowest voltage while you start the engine (the best indicator of battery
+health), then charging at idle and with the lights, blower, defrost and A/C on. It only reads
+voltages. The result goes into the report, and the automatic checks use it instead of the
+scan's two voltage readings.
+
+### Renault module database (optional)
+
+Without it, modules are read with the generic standards: every fault code, but only a generic
+meaning for Renault's own codes. With DDT4All's database (`ecu.zip`), DusterScan understands
+each module the way Renault's tools do:
+
+- Renault's name for each fault code, the mileage when it was stored and how many times it
+  happened (so an old one-off event is told apart from a recurring fault);
+- the module's own measurements, states and configuration (gearbox oil temperature, wheel
+  speeds, airbag circuit resistances, module supply voltages, ...), in a "Module data" section;
+- the odometer, from the module that stores it (instead of the number in Settings).
+
+Import it once: **Settings → Renault module database → Import .zip**. DusterScan keeps its own
+copy in `%LOCALAPPDATA%\DusterScan\ddt` (you can move or delete the original) and never
+bundles it or sends it anywhere; only decoded values go into reports and the AI analysis.
+
+After that, every scan matches each module to a definition by its identification (diagnostic
+version, supplier, software, edition). Only an **exact** match, or one where only the edition
+differs (**same software**), is used automatically; anything less certain keeps the module
+**generic**, exactly as without the database. The **Module definitions** card (under Scan)
+shows what was chosen and lets you pick another definition from a searchable list, which
+re-reads that module; your pick is remembered for that module. Even then the answers are
+checked against the definition, and a definition they don't fit is dropped for that scan.
+
+A **standard** scan reads each matched module's most informative values within a time
+budget; a **deep** scan reads every value it can. Only read requests are taken from a
+definition (the files also describe writes, actuator tests and resets: those are never
+sent, and `safety.py` refuses them anyway).
 
 Every scan is saved automatically to `Documents\DusterScan` (HTML report + JSON data), so
 you can compare scans over time or re-open one with **Open saved scan**.
@@ -84,35 +125,40 @@ If the model declines a request, the API falls back to another Claude model auto
 - Engine data sampled several times during the scan (fuel trims, coolant, MAF/MAP, O2
   sensors, charging voltage, ...) compared against typical warm-idle ranges
 - Emission self-test (readiness) status and on-board test results (mode 06)
-- Module inventory with part/software identification
+- Module inventory with part/software identification, and which Renault definition read each
+- With the Renault database: Renault code names, when each code was stored and how often, and
+  each module's own values
+- The battery and charging test, when one was made on this connection
 - Automatic checks in plain language (lean/rich mixture, charging, thermostat, lazy O2
-  sensor, codes recently cleared, ...), which work even without the AI step
+  sensor, codes recently cleared, network/voltage events, a module with a poor supply,
+  battery health, ...), which work even without the AI step
 
 ## Limits worth knowing
 
-- Fault codes from body/airbag/ABS modules are decoded with the generic SAE/ISO rules. Their
-  exact Renault meaning comes from Renault's own database, which DusterScan doesn't include.
-  The AI analysis interprets them and says how confident it is.
-- Module live data (for example wheel speeds from the ABS, or airbag squib resistances) also
-  needs that database. Engine live data uses standard OBD-II and is complete.
+- Without the Renault database, fault codes from body/airbag/ABS modules are decoded with the
+  generic SAE/ISO rules and module values are not read; the AI analysis interprets the codes
+  and says how confident it is. With it, a module whose software is not in the database (on a
+  2018 Duster, the ABS) stays generic unless you pick a definition yourself.
 - Only modules on the CAN bus are scanned. If an older module on the K-line exists on this
   car, it won't be seen. DDT4All's module list for your car would show whether any exist.
 
 ## Development
 
-Requires Python 3.11+ on Windows. There are two separate Python environments:
-
-| Environment | Where | Used for |
-|---|---|---|
-| `.venv` | inside the project | running the Python code: tests, scripts, the browser preview |
-| build environment | `%LOCALAPPDATA%\DusterScan-build\venv` | building the `.exe`, and opening the app window from source |
-
-### Project environment (`.venv`)
+Requires Python 3.11+ on Windows, and the project in a normal Windows folder (on a network or
+WSL path, Windows' .NET Framework refuses to load pywebview's component and the window fails
+with `Failed to resolve Python.Runtime.Loader.Initialize`). Everything runs in one virtual
+environment, `.venv`, inside the project.
 
 Create or update it (installs `requirements-dev.txt`: the app's packages plus pytest and PyInstaller):
 
 ```bash
 powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+Open the app from source:
+
+```bash
+run.bat
 ```
 
 Run the tests:
@@ -121,52 +167,18 @@ Run the tests:
 test.bat
 ```
 
-Run any Python in the project with `.venv\Scripts\python.exe`, for example the browser preview,
-which serves the UI with the real backend at http://127.0.0.1:8765 (no native file dialogs),
-handy for UI work:
+The browser preview serves the UI with the real backend at http://127.0.0.1:8765 (no native
+file dialogs), handy for UI work:
 
 ```bash
 .venv\Scripts\python.exe tools\browser_preview.py
 ```
 
-### Opening the app window from source
-
-While the project lives on the WSL path (`\\wsl.localhost\...`), `.venv` cannot open the app
-window: pywebview loads a .NET component from the environment, and Windows' .NET Framework
-refuses to load components from network-style paths (the error is
-`Failed to resolve Python.Runtime.Loader.Initialize`). Use the build environment's Python, which
-lives on the local disk, instead (run `build.ps1` once first to create it):
-
-```bash
-%LOCALAPPDATA%\DusterScan-build\venv\Scripts\pythonw.exe run.py
-```
-
-If the project is moved to a normal Windows folder, `.venv\Scripts\pythonw.exe run.py` works too.
-
-### Running from a WSL terminal
-
-DusterScan is a Windows app (WebView2 window, Windows COM port for the adapter), and both
-environments above are Windows environments. In WSL's Linux shell, activating `.venv`
-(`source .venv/Scripts/activate`) changes the prompt but `python` still means WSL's Linux Python,
-which fails with `ModuleNotFoundError: No module named 'webview'`. Call the Windows interpreters
-by name instead; no activation needed (in the second command, `angel` is the Windows user name):
-
-```bash
-.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
-```
-
-```bash
-/mnt/c/Users/angel/AppData/Local/DusterScan-build/venv/Scripts/pythonw.exe run.py
-```
-
-A Linux virtual environment is not a substitute: without extra setup WSL can't see the USB
-adapter, and the window would need a Linux GUI toolkit.
-
 ### Building the executable
 
 Output: `dist\DusterScan\` (the app folder: `DusterScan.exe` plus its `_internal` files) and
 `dist\DusterScan-<version>-win64.zip` (the same folder, zipped, for copying to other PCs).
-Close the app first, because Windows locks a running `.exe`.
+Close the app first, because Windows locks a running `.exe`. The build uses `.venv` too.
 
 ```bash
 powershell -ExecutionPolicy Bypass -File build.ps1
@@ -215,6 +227,9 @@ If a scanner still flags a build:
 | `dusterscan/renault.py` | Per-module scan (UDS/KWP2000 identification and fault codes) |
 | `dusterscan/dtc.py` | Code descriptions, failure types, status bits |
 | `dusterscan/scanner.py` | Runs the full scan, builds the report |
+| `dusterscan/live.py` | Live data: continuous engine or module readings until stopped |
+| `dusterscan/battery.py` | Guided battery and charging test |
+| `dusterscan/ddt/` | Renault database: import (`store.py`), matching (`match.py`), decoding (`decode.py`), read-only module reading (`reader.py`), demo definitions (`demo.py`) |
 | `dusterscan/rules.py` | Automatic plain-language checks |
 | `dusterscan/ai.py` | Claude analysis with a strict JSON schema |
 | `dusterscan/report_html.py` | Report rendering |

@@ -7,6 +7,7 @@ import json
 from .i18n import UserError, normalize, resolve
 
 MODEL = "claude-opus-5-5"
+MODULE_VALUES_FOR_AI = 250   # per module
 
 # How the prompt names each app language
 PROMPT_LANGUAGE = {"en": "English", "es": "Spanish (as spoken in Colombia)"}
@@ -48,6 +49,18 @@ the same event can explain before suspecting a module.
 - obd.obd_ecus lists the computers that answer OBD-II (7E8 engine, 7E9 automatic gearbox) and each \
 OBD code names the computer that reported it. vehicle.module_vins is the VIN each module was coded \
 with; a module with a different VIN was probably replaced with a used part.
+- When a module has a "definition", it was read with Renault's own definition from the owner's \
+DDT4All database: "renault_name" is Renault's name for that code in that module (prefer it over the \
+generic description), "extended" holds what the module recorded with the code (mileage_km when it \
+was stored, occurrences), and "module_data" holds the module's own measurements, states and \
+configuration. meta.odometer_km is the current mileage, so mileage_km tells how long ago a code \
+happened; one old occurrence matters far less than a recent or repeated one. Trust a definition \
+with tier "exact" or "same_software" chosen automatically; when it was chosen by the user with a \
+weaker tier, values may be misdecoded, so cross-check them before relying on them. Modules without \
+a definition were read generically.
+- module_data supply voltages below the OBD socket voltage (adapter readings) point to a poor ground \
+or connector on that module. battery_test, when present, is a guided test: battery at rest, lowest \
+voltage while starting (the key indicator of battery health), charging at idle and under load.
 - Order likely causes from most to least probable, and order tests from cheapest and simplest to \
 most involved. Avoid replacing parts on a guess; prefer a test that confirms the cause first. Give \
 concrete test procedures with expected values (for example resistance, voltage, swap test, smoke \
@@ -129,6 +142,15 @@ def _prepare(report: dict) -> dict:
     r.pop("adapter_log", None)
     for ecu in r.get("ecus", []):
         ecu.get("identification", {}).pop("raw", None)
+        ecu.pop("module_raw", None)
+        data = ecu.get("module_data")
+        if data:  # keep the request size sane for modules with hundreds of values (groups come best first)
+            budget = MODULE_VALUES_FOR_AI
+            for g in data.get("groups", []):
+                g["values"] = [{"name": v["item"], "value": v["value"], "unit": v.get("unit", "")}
+                               for v in g["values"][:max(0, budget)]]
+                budget -= len(g["values"])
+            data["groups"] = [g for g in data["groups"] if g["values"]]
     return r
 
 
