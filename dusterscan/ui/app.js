@@ -39,6 +39,7 @@ function applyStrings() {
   for (const el of document.querySelectorAll(".status")) if (el._msg) setStatus(el, el._msg.key, el._msg.params, el._msg.kind);
   renderConnection();
   renderScanResult();
+  renderUpdate();
 }
 
 // -- status lines ----------------------------------------------------------------
@@ -581,6 +582,75 @@ async function removeDdt() {
   await renderModules();
 }
 
+// -- app updates ------------------------------------------------------------------
+
+const upd = { info: null, checking: false, running: false, error: null };
+
+async function checkUpdate(manual) {
+  upd.checking = true;
+  upd.error = null;
+  renderUpdate();
+  const r = await api.check_update();
+  upd.checking = false;
+  if (r.ok) upd.info = r;
+  else if (manual) upd.error = r.error;   // the silent check at start says nothing when offline
+  renderUpdate();
+}
+
+function renderUpdate() {
+  const i = upd.info, newer = !!i?.newer;
+  $("btn-update").classList.toggle("hidden", !newer);
+  if (newer) $("btn-update-label").textContent = T("ui.update_pill", { version: i.latest });
+  const st = $("update-status");
+  if (upd.checking) setStatus(st, "ui.update_checking");
+  else if (upd.error) setRaw(st, upd.error, "err");
+  else if (newer) setStatus(st, "ui.update_available", { version: i.latest, current: state.version }, "ok");
+  else if (i) setStatus(st, "ui.update_current", { version: state.version });
+  else setStatus(st, "ui.update_version", { version: state.version });
+  $("btn-update-check").disabled = upd.checking || upd.running;
+  $("btn-update-open").classList.toggle("hidden", !newer);
+}
+
+function renderUpdateDialog() {
+  $("btn-update-now").disabled = upd.running || !!state.update?.blocked;
+  $("btn-update-cancel-label").textContent = T(upd.running ? "ui.cancel" : "ui.update_later");
+  $("update-progress").classList.toggle("hidden", !upd.running);
+}
+
+function openUpdate() {
+  const i = upd.info;
+  if (!i?.newer) return;
+  $("update-title").textContent = T("ui.update_title", { version: i.latest });
+  $("update-meta").textContent = T("ui.update_meta", {
+    current: state.version, date: i.published || "", size: i.size ? local((i.size / 1048576).toFixed(1)) : "?" });
+  $("update-notes").textContent = i.notes || T("ui.update_no_notes");
+  if (!upd.running) {
+    const b = state.update?.blocked;
+    if (b === "source") setStatus($("update-msg"), "ui.update_from_source");
+    else if (b === "readonly") setStatus($("update-msg"), "ui.update_readonly", { folder: state.update.folder });
+    else setRaw($("update-msg"), "");
+  }
+  renderUpdateDialog();
+  if (!$("update-dlg").open) $("update-dlg").showModal();
+}
+
+async function installUpdate() {
+  const r = await api.install_update();
+  if (!r.ok) { setRaw($("update-msg"), r.error, "err"); return; }
+  upd.running = true;
+  $("update-fill").style.width = "0";
+  $("btn-update-cancel").disabled = false;
+  setStatus($("update-msg"), "ui.update_downloading", { pct: 0 });
+  renderUpdate();
+  renderUpdateDialog();
+}
+
+function toast(text, kind) {
+  $("toast-text").textContent = text;
+  $("toast").classList.remove("hidden", "ok", "err");
+  if (kind) $("toast").classList.add(kind);
+}
+
 // Spanish writes 12,4 V: decimal comma (Python does the same in reports, see i18n.DECIMAL_COMMA)
 function local(s) { return state.language === "es" ? String(s).replace(".", ",") : String(s); }
 
@@ -800,6 +870,22 @@ window.DS = {
       lockWhileRunning(false);
       renderBattery();
       if (data.result && state.has_report) await showReport();
+    } else if (event === "update_progress") {
+      if (data.stage === "download") {
+        $("update-fill").style.width = Math.round(data.fraction * 100) + "%";
+        setStatus($("update-msg"), "ui.update_downloading", { pct: Math.round(data.fraction * 100) });
+      } else {   // unpacking, then the app closes and the new version takes over
+        $("update-fill").style.width = "100%";
+        $("btn-update-cancel").disabled = true;
+        setStatus($("update-msg"), data.stage === "install" ? "ui.update_installing" : "ui.update_restarting");
+      }
+    } else if (event === "update_failed") {
+      upd.running = false;
+      $("btn-update-cancel").disabled = false;
+      if (data.cancelled) setStatus($("update-msg"), "ui.update_cancelled");
+      else setRaw($("update-msg"), data.error, "err");
+      renderUpdate();
+      renderUpdateDialog();
     }
   },
 };
@@ -878,6 +964,21 @@ async function init() {
     else if (r.error) setRaw($("files-status"), r.error, "err");
   };
   $("btn-folder").onclick = () => api.open_reports_folder();
+  $("btn-update").onclick = openUpdate;
+  $("btn-update-open").onclick = openUpdate;
+  $("btn-update-check").onclick = () => checkUpdate(true);
+  $("btn-update-now").onclick = installUpdate;
+  $("btn-update-cancel").onclick = () => {
+    if (!upd.running) { $("update-dlg").close(); return; }
+    api.cancel_update();
+    setStatus($("update-msg"), "ui.cancelling");
+  };
+  $("update-dlg").addEventListener("cancel", (e) => { if (upd.running) e.preventDefault(); });  // Esc while downloading
+  $("btn-toast-close").onclick = () => $("toast").classList.add("hidden");
+  const after = state.update || {};
+  if (after.updated_from) toast(T("ui.update_done", { version: state.version, old: after.updated_from }), "ok");
+  else if (after.update_failed) toast(T("ui.update_failed_start", { version: state.version, log: after.log }), "err");
+  checkUpdate(false);   // one request to GitHub; the pill appears only if there is a newer version
 
   // Ready: fade out the startup screen.
   $("boot").classList.add("done");

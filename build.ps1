@@ -68,11 +68,14 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 Copy-Item "$root\assets\DusterScan.exe.config" (Join-Path $dist "DusterScan\DusterScan.exe.config")
 
 $zip = Join-Path $dist "DusterScan-$version-win64.zip"
-Remove-Item $zip -ErrorAction SilentlyContinue
+# Python's zipfile, not Compress-Archive: Windows PowerShell 5.1 writes "\" in entry names, which the
+# zip format does not allow (the app's updater unpacks this zip); this is the same zip everywhere.
 # Antivirus scanners briefly lock files PyInstaller just wrote; wait and retry instead of failing.
 for ($try = 1; ; $try++) {
     try {
-        Compress-Archive -Path (Join-Path $dist "DusterScan") -DestinationPath $zip -Force
+        Remove-Item $zip -ErrorAction SilentlyContinue
+        & $py -m zipfile -c $zip (Join-Path $dist "DusterScan")
+        if ($LASTEXITCODE -ne 0) { throw "zip failed" }
         break
     } catch {
         if ($try -ge 6) { throw }

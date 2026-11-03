@@ -1,6 +1,14 @@
 """Start the DusterScan desktop app."""
 
-from dusterscan.app import main
+import sys
 
 if __name__ == "__main__":
-    main()
+    args = sys.argv[1:]
+    if "--apply-update" in args:
+        # A new version, started from its downloaded copy to replace the installed one (no window).
+        from dusterscan.updater import apply_main
+        sys.exit(apply_main(args))
+    from dusterscan.app import main, self_check
+    if "--self-check" in args:
+        sys.exit(self_check(args))
+    main(args)

@@ -1,0 +1,118 @@
+# Tests and builds every push and pull request. When __version__ in dusterscan/__init__.py
+# changes on main (no release v<version> exists yet), the build is published as a GitHub
+# Release: DusterScan-<version>-win64.zip + SHA256SUMS.txt. The app's updater reads the latest
+# release (dusterscan/updater.py), so the asset names below are part of that contract.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path dusterscan\__init__.py -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
+          # The updater compares versions as three numbers.
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "__version__ must look like 1.2.3, got '$v'" }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$v"
+
+      # The project's scripts expect .venv; once it exists build.ps1 only re-checks the packages.
+      - name: Create .venv
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --disable-pip-version-check -q -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
+
+      - name: Test
+        shell: cmd
+        run: test.bat
+
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1
+
+      # Catches packaging mistakes the tests can't see (a module or the UI files missing from the build).
+      - name: Smoke test the built app
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "self-check.txt"
+          $p = Start-Process dist\DusterScan\DusterScan.exe -ArgumentList "--self-check", "`"$out`"" -Wait -PassThru
+          if (Test-Path $out) { Get-Content $out }
+          if ($p.ExitCode -ne 0) { throw "Self-check failed (exit code $($p.ExitCode))" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DusterScan-${{ steps.version.outputs.version }}-win64
+          path: dist/DusterScan-${{ steps.version.outputs.version }}-win64.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # tags and history, for the release notes
+
+      - name: Is this version new?
+        id: check
+        run: |
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "v$VERSION is already released; nothing to publish (bump __version__ to release)."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.check.outputs.publish == 'true'
+        with:
+          name: DusterScan-${{ env.VERSION }}-win64
+          path: dist
+
+      - name: Publish release
+        if: steps.check.outputs.publish == 'true'
+        run: |
+          zip="DusterScan-$VERSION-win64.zip"
+          (cd dist && sha256sum "$zip" > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # Notes: commit subjects since the previous release (all commits for the first one).
+          prev=$(git describe --tags --abbrev=0 --match 'v*' 2> /dev/null || true)
+          git log --no-merges --format='- %s' ${prev:+"$prev..HEAD"} > notes.md
+          cat notes.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "DusterScan $VERSION" \
+            --notes-file notes.md --latest "dist/$zip" dist/SHA256SUMS.txt

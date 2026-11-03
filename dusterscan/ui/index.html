@@ -33,6 +33,7 @@
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-battery" viewBox="0 0 24 24"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/><line x1="6" x2="6" y1="11" y2="13"/><line x1="10" x2="10" y1="11" y2="13"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
 </svg>
 
@@ -49,6 +50,7 @@
       <div class="logo"><svg class="ic"><use href="#i-activity"/></svg></div>
       <span class="wordmark">Duster<span>Scan</span></span>
       <span class="tag" id="version"></span>
+      <button type="button" class="pill new hidden" id="btn-update" data-i18n-title="ui.update_pill_tip"><svg class="ic"><use href="#i-download"/></svg><span id="btn-update-label"></span></button>
     </div>
     <span class="pill ok" data-i18n-title="ui.read_only_tip"><svg class="ic"><use href="#i-shield-check"/></svg><span class="ro-badge-text" data-i18n="ui.read_only">Read-only: never writes to the car</span></span>
   </div>
@@ -244,12 +246,45 @@
       </div>
       <small class="hint" data-i18n="ui.ddt_hint">DDT4All's ecu.zip. It stays on this PC; DusterScan only reads the modules with it, never writes.</small>
     </div>
+    <div class="field">
+      <span class="label" data-i18n="ui.app_version">App version</span>
+      <div class="ddt-box">
+        <p class="status" id="update-status"></p>
+        <div class="row">
+          <button type="button" class="btn btn-outline" id="btn-update-check"><svg class="ic"><use href="#i-refresh"/></svg><span data-i18n="ui.update_check">Check for updates</span></button>
+          <button type="button" class="btn btn-outline hidden" id="btn-update-open"><svg class="ic"><use href="#i-download"/></svg><span data-i18n="ui.update_view">See what's new</span></button>
+        </div>
+      </div>
+    </div>
     <div class="row end">
       <button type="button" class="btn btn-outline" onclick="this.closest('dialog').close('cancel')"><span data-i18n="ui.cancel">Cancel</span></button>
       <button class="btn btn-primary" value="save"><span data-i18n="ui.save">Save</span></button>
     </div>
   </form>
 </dialog>
+
+<dialog id="update-dlg">
+  <form method="dialog" class="dlg">
+    <h2 id="update-title"></h2>
+    <p class="update-meta" id="update-meta"></p>
+    <div class="field">
+      <span class="label" data-i18n="ui.update_notes">What's new</span>
+      <pre class="update-notes" id="update-notes"></pre>
+    </div>
+    <small class="hint" data-i18n="ui.update_hint">DusterScan downloads the new version from GitHub, checks it and restarts. Your settings, database and saved scans stay as they are.</small>
+    <div class="progress hidden" id="update-progress"><div class="track"><div class="fill" id="update-fill"></div></div></div>
+    <div class="status" id="update-msg"></div>
+    <div class="row end">
+      <button type="button" class="btn btn-outline" id="btn-update-cancel"><span id="btn-update-cancel-label" data-i18n="ui.update_later">Not now</span></button>
+      <button type="button" class="btn btn-primary" id="btn-update-now"><svg class="ic"><use href="#i-download"/></svg><span data-i18n="ui.update_now">Update now</span></button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast hidden" id="toast" role="status">
+  <span id="toast-text"></span>
+  <button type="button" class="btn btn-outline btn-icon" id="btn-toast-close" data-i18n-title="ui.close"><svg class="ic"><use href="#i-x"/></svg></button>
+</div>
 
 <script src="app.js"></script>
 </body>

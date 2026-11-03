@@ -12,7 +12,7 @@ from pathlib import Path
 
 import webview
 
-from . import __version__, ai, i18n, rules, settings
+from . import __version__, ai, i18n, rules, settings, updater
 from .battery import BatteryTest
 from .ddt import match, store
 from .ddt.reader import STANDARD_BUDGET_S, ModuleReader, enrich_module, groups_of, strip
@@ -50,6 +50,11 @@ class Api:
         self._battery_stop = threading.Event()
         self._battery_next = threading.Event()
         self._battery_result: dict | None = None   # last test this connection; joins the next scan
+        self._update: dict | None = None           # last answer from GitHub (check_update)
+        self._update_cancel = threading.Event()
+        self._update_blocker: str | None = None    # why this copy can't update itself (computed once)
+        self._after_update: dict = {}              # {"updated_from": version} or {"update_failed": True} (command line)
+        self._cleanup: threading.Thread | None = None
 
     # -- helpers -------------------------------------------------------------
 
@@ -96,6 +101,8 @@ class Api:
             "ddt": self.ddt_status(),
             "odometer_km": s["odometer_km"],
             "odometer_at": s["odometer_at"],
+            "update": {"blocked": self._blocked(), "folder": str(updater.install_dir() or ""),
+                       "log": str(updater.LOG_FILE), **self._after_update},
         }
 
     def get_strings(self, lang: str) -> dict:
@@ -494,6 +501,69 @@ class Api:
         saved = self._autosave()
         self._emit("ai_done", {"seconds": round(time.monotonic() - t0), "saved": saved})
 
+    # -- updates ------------------------------------------------------------------
+
+    def _blocked(self) -> str | None:
+        """None when this copy can update itself, else "source" (not the built app) or "readonly"."""
+        if self._update_blocker is None:
+            folder = updater.install_dir()
+            self._update_blocker = "source" if folder is None else "" if updater.writable(folder) else "readonly"
+        return self._update_blocker or None
+
+    def check_update(self) -> dict:
+        """The latest release on GitHub (the UI asks at start, silently, and from Settings)."""
+        try:
+            self._update = updater.check()
+        except i18n.UserError as e:
+            return {"ok": False, "error": self._error_text(e)}
+        return {"ok": True, **self._update}
+
+    def install_update(self) -> dict:
+        info = self._update
+        if not (info and info.get("newer")):
+            return {"ok": False, "error": self._t("error.update_none")}
+        blocked = self._blocked()
+        if blocked:   # the dialog already says so; this is the same text
+            key = "ui.update_from_source" if blocked == "source" else "ui.update_readonly"
+            return {"ok": False, "error": self._t(key, folder=str(updater.install_dir()))}
+        if self._scanning or self._importing or self._busy:
+            return {"ok": False, "error": self._t("error.update_busy")}
+        self.stop_live(wait=True)
+        self._update_cancel.clear()
+        if not self._start(self._install_update, info):
+            return {"ok": False, "error": self._t("error.update_busy")}
+        return {"ok": True}
+
+    def cancel_update(self) -> None:
+        self._update_cancel.set()
+
+    def _install_update(self, info: dict) -> None:
+        if self._cleanup:
+            self._cleanup.join()   # the last update's leftovers are gone before downloading into the same folder
+        try:
+            path = updater.download(
+                info, lambda f: self._emit("update_progress", {"stage": "download", "fraction": round(f, 3)}),
+                self._update_cancel)
+            self._emit("update_progress", {"stage": "install"})
+            staged = updater.stage(path)
+            updater.launch(staged, updater.install_dir())
+        except updater.UpdateCancelled:
+            self._emit("update_failed", {"cancelled": True})
+            return
+        except i18n.UserError as e:
+            self._emit("update_failed", {"error": self._error_text(e)})
+            return
+        except Exception as e:
+            traceback.print_exc()
+            self._emit("update_failed", {"error": self._t("error.unexpected", error=str(e))})
+            return
+        # The new version waits for this process to exit before replacing its files.
+        self._emit("update_progress", {"stage": "restart"})
+        self.disconnect()
+        time.sleep(1)
+        if self._window:
+            self._window.destroy()
+
     # -- files ------------------------------------------------------------------
 
     def save_html(self) -> str:
@@ -535,8 +605,52 @@ class Api:
         os.startfile(settings.REPORTS_DIR)  # type: ignore[attr-defined]
 
 
-def main() -> None:
+def self_check(args: list[str]) -> int:
+    """`DusterScan.exe --self-check [report.txt]`: the build's smoke test (.github/workflows/build.yml).
+
+    Exit code 0 when the packaged app has its UI files, every language, the credential store and
+    the .NET part the window needs; the report file says which check failed.
+    """
+    lines, failed = [f"DusterScan {__version__}"], False
+
+    def ui_files():
+        missing = [f for f in ("index.html", "app.js", "style.css") if not (_resource_dir() / f).is_file()]
+        if missing:
+            raise FileNotFoundError(", ".join(missing))
+
+    def languages():
+        for lang in i18n.LANGUAGES:
+            if not i18n.strings(lang):
+                raise ValueError(lang)
+
+    def window():
+        # .NET and the WebView2 wrappers: what fails as "Python.Runtime.Loader.Initialize"
+        import webview.platforms.winforms  # noqa: F401
+
+    for name, check in (("ui files", ui_files), ("languages", languages),
+                        ("credential store", settings._keyring), ("window", window)):
+        try:
+            check()
+            lines.append(f"ok    {name}")
+        except Exception as e:
+            failed = True
+            lines.append(f"FAIL  {name}: {e!r}")
+    report = next((a for a in args if not a.startswith("--")), None)
+    if report:
+        Path(report).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return 1 if failed else 0
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = argv or []
     api = Api()
+    if "--updated" in argv:   # started by the new version after it replaced the old one (see updater.py)
+        i = argv.index("--updated")
+        api._after_update = {"updated_from": argv[i + 1] if i + 1 < len(argv) else ""}
+    elif "--update-failed" in argv:
+        api._after_update = {"update_failed": True}
+    api._cleanup = threading.Thread(target=updater.cleanup, daemon=True)
+    api._cleanup.start()
     window = webview.create_window(
         f"DusterScan {__version__}", url=str(_resource_dir() / "index.html"), js_api=api,
         width=1280, height=860, min_size=(820, 600), text_select=True,

@@ -1,5 +1,7 @@
 # DusterScan
 
+[![Build](https://github.com/AngeloCaruso/DusterScan/actions/workflows/build.yml/badge.svg)](https://github.com/AngeloCaruso/DusterScan/actions/workflows/build.yml)
+
 A Windows app that connects to the car through an ELM327-compatible adapter
 (built and tested against the Vgate vLinker FS USB), scans every computer
 module it can reach, writes a structured health report, and then asks Claude
@@ -35,8 +37,10 @@ is one.
    FORScan if they are open, since only one program can use the port.
 2. Start the engine and let it reach normal temperature (ignition ON also works, but live
    engine values are only meaningful with the engine running).
-3. Unzip `DusterScan-<version>-win64.zip` anywhere (keep the folder together), open
-   `DusterScan\DusterScan.exe` → **Connect** → **Start scan**.
+3. Download `DusterScan-<version>-win64.zip` from
+   [Releases](https://github.com/AngeloCaruso/DusterScan/releases/latest) and unzip it in a folder of
+   yours, such as Documents or the Desktop (keep the folder together; not Program Files, so the app
+   can update itself). Open `DusterScan\DusterScan.exe` → **Connect** → **Start scan**.
    - **Standard** checks the engine plus the usual Duster modules (ABS, airbag, body control,
      cluster, climate, power steering, automatic gearbox) in about a minute.
    - **Deep** also searches every other diagnostic address (~3 minutes).
@@ -92,6 +96,24 @@ Every scan is saved automatically to `Documents\DusterScan` (HTML report + JSON 
 you can compare scans over time or re-open one with **Open saved scan**.
 
 **Demo mode** runs the whole flow against a simulated Duster with a few faults, without an adapter.
+
+### Updates
+
+At start, DusterScan asks GitHub once for the latest release. When there is a newer one, an
+**Update** button appears next to the version in the top bar (Settings → App version shows the same
+and has **Check for updates**). It opens what changed; **Update now** downloads the new version,
+checks it against the release's SHA-256 checksum, closes the app, replaces the app files in its
+folder and starts the new version. Nothing installs without that click.
+
+- Only the app files change (`DusterScan.exe`, `DusterScan.exe.config`, `_internal`). Settings, the
+  API key, the Renault database and saved scans live elsewhere and stay as they are.
+- If anything goes wrong while replacing the files, the old version is put back and started again;
+  the details are in `%LOCALAPPDATA%\DusterScan\update.log`.
+- It contacts only GitHub (api.github.com and the release download), and sends nothing about the
+  car or your reports. Without internet nothing is shown.
+- Updates need the app folder to be writable (not under Program Files). Running from source, the
+  app shows the new version but you update with `git pull`.
+- Versions before 0.5.0 have no updater: download 0.5.0 from Releases once.
 
 ### Languages
 
@@ -184,6 +206,19 @@ Close the app first, because Windows locks a running `.exe`. The build uses `.ve
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
+### Releases (GitHub Actions)
+
+[.github/workflows/build.yml](.github/workflows/build.yml) runs on every push and pull request, on
+a Windows runner: it creates `.venv`, runs `test.bat`, runs `build.ps1`, starts the built app with
+`--self-check` (it must find its UI files, languages, credential store and .NET parts) and keeps the
+zip as a downloadable artifact of the run.
+
+To publish a version, change `__version__` in [dusterscan/__init__.py](dusterscan/__init__.py)
+(three numbers, like `0.5.1`) and push to main. If there is no release `v<version>` yet, the
+pipeline creates it with `DusterScan-<version>-win64.zip`, `SHA256SUMS.txt` and the commit subjects
+since the previous release as notes. Pushes that don't change the version only test and build. The
+installed apps then offer the update by themselves (see Updates).
+
 ### "Failed to resolve Python.Runtime.Loader.Initialize" on another PC
 
 Windows marks files extracted from a downloaded or copied zip as "from the internet", and
@@ -235,5 +270,7 @@ If a scanner still flags a build:
 | `dusterscan/report_html.py` | Report rendering |
 | `dusterscan/i18n.py`, `dusterscan/locales/` | Translations (one JSON file per language) |
 | `dusterscan/app.py`, `dusterscan/ui/` | Desktop window (Edge WebView2 via pywebview) |
+| `dusterscan/updater.py` | Updates from GitHub releases: check, verified download, file swap with rollback |
+| `.github/workflows/build.yml` | Test, build and release pipeline |
 | `dusterscan/simulator.py` | Simulated adapter + car for demo mode and tests |
 | `assets/icon.ico`, `tools/make_assets.py` | The `.exe` icon, and the script that redraws it from the app logo (needs Pillow) |
